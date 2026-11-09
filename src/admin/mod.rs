@@ -25,13 +25,37 @@ use crate::{Pdf, RenderOptions, Rendered};
 /// The settings item holding templates and layouts as tabs.
 pub const SECTION: &str = "rainmill.pdf";
 
-/// The permission for every PDF screen.
+/// The permission for every PDF screen: opening templates and layouts.
 pub const MANAGE: &str = "rainmill.pdf.manage";
+/// Previewing and downloading a template or layout as a PDF.
+pub const PREVIEW: &str = "rainmill.pdf.preview";
+/// Creating a template, duplicates included.
+pub const TEMPLATES_CREATE: &str = "rainmill.pdf.templates.create";
+/// Saving a template, resetting it, and its translations.
+pub const TEMPLATES_UPDATE: &str = "rainmill.pdf.templates.update";
+/// Deleting a template.
+pub const TEMPLATES_DELETE: &str = "rainmill.pdf.templates.delete";
+/// Creating a layout, duplicates included.
+pub const LAYOUTS_CREATE: &str = "rainmill.pdf.layouts.create";
+/// Saving a layout and resetting it.
+pub const LAYOUTS_UPDATE: &str = "rainmill.pdf.layouts.update";
+/// Deleting a layout.
+pub const LAYOUTS_DELETE: &str = "rainmill.pdf.layouts.delete";
 /// The picker source over layouts, for a template's layout field.
 pub const LAYOUT_SOURCE: &str = "rainmill.pdf.layouts";
 
-pub(crate) fn permission() -> Permission {
-    Permission::new(MANAGE, t!("Manage PDF templates and layouts"), t!("PDF"))
+pub(crate) fn permissions() -> Vec<Permission> {
+    let group = || t!("PDF");
+    vec![
+        Permission::new(MANAGE, t!("Open PDF templates and layouts"), group()),
+        Permission::new(PREVIEW, t!("Preview and download PDFs"), group()),
+        Permission::new(TEMPLATES_CREATE, t!("Create PDF templates"), group()),
+        Permission::new(TEMPLATES_UPDATE, t!("Edit PDF templates"), group()),
+        Permission::new(TEMPLATES_DELETE, t!("Delete PDF templates"), group()),
+        Permission::new(LAYOUTS_CREATE, t!("Create PDF layouts"), group()),
+        Permission::new(LAYOUTS_UPDATE, t!("Edit PDF layouts"), group()),
+        Permission::new(LAYOUTS_DELETE, t!("Delete PDF layouts"), group()),
+    ]
 }
 
 pub(crate) fn section() -> laterite_admin::nav::NavItem {
@@ -41,6 +65,13 @@ pub(crate) fn section() -> laterite_admin::nav::NavItem {
         .slot(laterite_core::arrange::slot::SYSTEM)
         .order(16)
         .in_settings(t!("System"))
+}
+
+/// The History page's stylesheet, by its asset key.
+pub const HISTORY_CSS: &str = "rainmill-pdf-history.css";
+
+pub(crate) fn history_css() -> laterite_admin::AdminAsset {
+    laterite_admin::AdminAsset::new("text/css", include_bytes!("../../assets/history.css"))
 }
 
 pub(crate) fn resources() -> Vec<Resource> {
@@ -75,6 +106,14 @@ struct Cx {
 }
 
 impl Cx {
+    /// Where the tool routes mount.
+    fn tools(&self) -> String {
+        format!(
+            "{}/rainmill/pdf/tools",
+            self.admin_path.trim_end_matches('/')
+        )
+    }
+
     fn edit(&self, kind: &str, id: i64) -> String {
         format!(
             "{}/rainmill/pdf/{kind}/{id}/edit",
@@ -111,9 +150,22 @@ impl Screen for Tools {
             templates: Arc::new(templates),
             layouts: Arc::new(layouts),
         };
+        let guarded = |code: &'static str| {
+            laterite_admin::axum::middleware::from_fn(
+                move |Extension(shell): Extension<laterite_admin::Shell>,
+                      req: laterite_admin::axum::extract::Request,
+                      next: laterite_admin::axum::middleware::Next| async move {
+                    if shell.allows(code) {
+                        next.run(req).await
+                    } else {
+                        StatusCode::FORBIDDEN.into_response()
+                    }
+                },
+            )
+        };
         let c = |cx: &Cx| cx.clone();
         let (p, tp, tr, td, lp, lr, ld) = (c(&cx), c(&cx), c(&cx), c(&cx), c(&cx), c(&cx), c(&cx));
-        Router::new()
+        let preview_routes = Router::new()
             .route(
                 "/preview",
                 post(move |Form(form): Form<HashMap<String, String>>| preview(p.clone(), form)),
@@ -123,49 +175,79 @@ impl Screen for Tools {
                 get(move |Path(id): Path<i64>| template_pdf(tp.clone(), id)),
             )
             .route(
-                "/templates/{id}/reset",
-                post(
-                    move |Path(id): Path<i64>,
-                          Extension(s): Extension<SessionHandle>,
-                          h: HeaderMap| {
-                        reset(tr.clone(), TEMPLATES, id, s, h)
-                    },
-                ),
-            )
-            .route(
-                "/templates/{id}/duplicate",
-                post(
-                    move |Path(id): Path<i64>,
-                          Extension(s): Extension<SessionHandle>,
-                          h: HeaderMap| {
-                        duplicate(td.clone(), TEMPLATES, id, s, h)
-                    },
-                ),
-            )
-            .route(
                 "/layouts/{id}/pdf",
                 get(move |Path(id): Path<i64>| layout_pdf(lp.clone(), id)),
             )
-            .route(
-                "/layouts/{id}/reset",
-                post(
-                    move |Path(id): Path<i64>,
-                          Extension(s): Extension<SessionHandle>,
-                          h: HeaderMap| {
-                        reset(lr.clone(), LAYOUTS, id, s, h)
-                    },
-                ),
-            )
-            .route(
-                "/layouts/{id}/duplicate",
-                post(
-                    move |Path(id): Path<i64>,
-                          Extension(s): Extension<SessionHandle>,
-                          h: HeaderMap| {
-                        duplicate(ld.clone(), LAYOUTS, id, s, h)
-                    },
-                ),
-            )
+            .route_layer(guarded(PREVIEW));
+        let write = |kind: &'static str, action: &'static str, cx: Cx, code: &'static str| {
+            let table = if kind == "templates" {
+                TEMPLATES
+            } else {
+                LAYOUTS
+            };
+            Router::new()
+                .route(
+                    &format!("/{kind}/{{id}}/{action}"),
+                    post(
+                        move |Path(id): Path<i64>,
+                              Extension(s): Extension<SessionHandle>,
+                              h: HeaderMap| {
+                            let cx = cx.clone();
+                            async move {
+                                if action == "reset" {
+                                    reset(cx, table, id, s, h).await
+                                } else {
+                                    duplicate(cx, table, id, s, h).await
+                                }
+                            }
+                        },
+                    ),
+                )
+                .route_layer(guarded(code))
+        };
+        let history = |kind: &'static str, cx: Cx, restore_code: &'static str| {
+            let restore_cx = cx.clone();
+            Router::new()
+                .route(
+                    &format!("/{kind}/{{id}}/history"),
+                    get(
+                        move |Path(id): Path<i64>, Extension(shell): Extension<laterite_admin::Shell>| {
+                            let cx = cx.clone();
+                            async move {
+                                let may_restore = shell.allows(restore_code);
+                                history_page(cx, kind, id, shell, may_restore).await
+                            }
+                        },
+                    ),
+                )
+                .merge(
+                    Router::new()
+                        .route(
+                            &format!("/{kind}/{{id}}/history/{{revision}}/restore"),
+                            post(
+                                move |Path((id, revision)): Path<(i64, i64)>,
+                                      Extension(shell): Extension<laterite_admin::Shell>,
+                                      Extension(s): Extension<SessionHandle>,
+                                      h: HeaderMap| {
+                                    let cx = restore_cx.clone();
+                                    async move {
+                                        restore(cx, kind, id, revision, shell.username(), s, h)
+                                            .await
+                                    }
+                                },
+                            ),
+                        )
+                        .route_layer(guarded(restore_code)),
+                )
+        };
+        let (th, lh) = (c(&cx), c(&cx));
+        preview_routes
+            .merge(history("templates", th, TEMPLATES_UPDATE))
+            .merge(history("layouts", lh, LAYOUTS_UPDATE))
+            .merge(write("templates", "reset", tr, TEMPLATES_UPDATE))
+            .merge(write("templates", "duplicate", td, TEMPLATES_CREATE))
+            .merge(write("layouts", "reset", lr, LAYOUTS_UPDATE))
+            .merge(write("layouts", "duplicate", ld, LAYOUTS_CREATE))
     }
 }
 
@@ -314,6 +396,135 @@ async fn duplicate(
             redirect(cx.edit(kind, copy), &headers)
         }
         Err(StoreError::NotFound) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    }
+}
+
+/// The versions of a template or layout, newest first, each with what changed
+/// from the one before and a Restore.
+async fn history_page(
+    cx: Cx,
+    kind: &'static str,
+    id: i64,
+    shell: laterite_admin::Shell,
+    may_restore: bool,
+) -> Response {
+    use crate::history::{self, escape};
+    let table = history::table_of(kind);
+    let revisions = match history::list(&cx.db, table, id).await {
+        Ok(r) => r,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+    let name = revisions
+        .first()
+        .and_then(|r| {
+            r.snapshot
+                .get(if kind == "templates" { "title" } else { "name" })
+        })
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_default();
+    let mut body = String::from("<div class=\"rm-history\">");
+    if revisions.is_empty() {
+        body.push_str(&format!(
+            "<p class=\"lat-note\">{}</p>",
+            escape(&shell.t("Nothing saved here yet. Each save in the admin adds a version."))
+        ));
+    }
+    for (i, rev) in revisions.iter().enumerate() {
+        body.push_str(
+            "<section class=\"lat-card rm-history__item\"><div class=\"rm-history__head\">",
+        );
+        body.push_str(&format!(
+            "<span class=\"rm-history__when\">{}</span>",
+            escape(&shell.datetime(&rev.created_at))
+        ));
+        if !rev.author.is_empty() {
+            body.push_str(&format!(
+                "<span class=\"rm-history__who\">{}</span>",
+                escape(&rev.author)
+            ));
+        }
+        if i == 0 {
+            body.push_str(
+                &laterite_admin::ui::Badge::new(t!("Current"))
+                    .render(&shell)
+                    .into_string(),
+            );
+        } else if may_restore {
+            let href = format!("{}/{kind}/{id}/history/{}/restore", cx.tools(), rev.id);
+            body.push_str(
+                &laterite_admin::ui::Button::post(t!("Restore"), href)
+                    .small()
+                    .confirm(t!(
+                        "Restore this version? The current one stays in the history."
+                    ))
+                    .render(&shell)
+                    .into_string(),
+            );
+        }
+        body.push_str("</div>");
+        match revisions.get(i + 1) {
+            Some(before) => {
+                let changes = history::changes(table, &before.snapshot, &rev.snapshot);
+                if changes.is_empty() {
+                    body.push_str(&format!(
+                        "<p class=\"rm-history__note\">{}</p>",
+                        escape(&shell.t("Saved with no changes."))
+                    ));
+                } else {
+                    body.push_str("<dl class=\"rm-history__changes\">");
+                    for change in changes {
+                        body.push_str(&format!(
+                            "<dt>{}</dt><dd>{}</dd>",
+                            escape(&shell.t(change.label)),
+                            change.html
+                        ));
+                    }
+                    body.push_str("</dl>");
+                }
+            }
+            None => body.push_str(&format!(
+                "<p class=\"rm-history__note\">{}</p>",
+                escape(&shell.t("The earliest version kept."))
+            )),
+        }
+        body.push_str("</section>");
+    }
+    body.push_str("</div>");
+    let title = if name.is_empty() {
+        t!("History")
+    } else {
+        laterite_core::Text::dynamic(format!("{}: {name}", shell.t("History")))
+    };
+    shell.page_with(
+        laterite_admin::PageHead::new(title)
+            .back(t!("Back"), cx.edit(kind, id))
+            .assets(&[HISTORY_CSS]),
+        laterite_admin::html::Markup::raw_unchecked(body),
+    )
+}
+
+/// Puts a saved version back.
+async fn restore(
+    cx: Cx,
+    kind: &'static str,
+    id: i64,
+    revision: i64,
+    author: &str,
+    session: SessionHandle,
+    headers: HeaderMap,
+) -> Response {
+    let table = crate::history::table_of(kind);
+    match crate::history::restore(&cx.db, table, id, revision, author).await {
+        Ok(true) => {
+            session.push_flash(
+                FlashLevel::Success,
+                t!("Restored. The version you replaced stays in the history."),
+            );
+            redirect(cx.edit(kind, id), &headers)
+        }
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     }
 }

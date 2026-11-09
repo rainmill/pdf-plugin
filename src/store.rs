@@ -733,3 +733,179 @@ pub async fn templates_using(db: &Db, layout_id: i64) -> Result<i64, sqlx::Error
         .await?;
     Ok(sqlx::Row::try_get::<i64, _>(&row, 0).unwrap_or_default())
 }
+
+/// Every layout, as a module would register it: code, name, author and
+/// settings. Media (logo, background) stays behind: its ids belong to this
+/// database.
+pub async fn all_layouts(db: &Db) -> Result<Vec<PdfLayoutReg>, sqlx::Error> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns(LAYOUT_COLUMNS.map(Alias::new))
+            .from(Alias::new(LAYOUTS))
+            .order_by(Alias::new("code"), sea_query::Order::Asc)
+            .to_owned(),
+    );
+    let rows = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
+    Ok(rows
+        .iter()
+        .map(|r| {
+            let stored = stored_from_row(r);
+            PdfLayoutReg::new(
+                r.get_text("code").unwrap_or_default(),
+                r.get_text("name").unwrap_or_default(),
+                stored.layout,
+            )
+            .author(stored.author)
+        })
+        .collect())
+}
+
+/// Every template, as a module would register it, translations included.
+pub async fn all_templates(db: &Db) -> Result<Vec<PdfTemplateReg>, sqlx::Error> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .expr_as(
+                Expr::col((Alias::new(TEMPLATES), Alias::new("id"))),
+                Alias::new("id"),
+            )
+            .columns(
+                [
+                    "code",
+                    "title",
+                    "description",
+                    "format",
+                    "body",
+                    "sample_data",
+                    "keywords",
+                ]
+                .map(|c| (Alias::new(TEMPLATES), Alias::new(c))),
+            )
+            .expr_as(
+                Expr::col((Alias::new(LAYOUTS), Alias::new("code"))),
+                Alias::new("layout_code"),
+            )
+            .from(Alias::new(TEMPLATES))
+            .left_join(
+                Alias::new(LAYOUTS),
+                Expr::col((Alias::new(LAYOUTS), Alias::new("id")))
+                    .equals((Alias::new(TEMPLATES), Alias::new("layout_id"))),
+            )
+            .order_by(
+                (Alias::new(TEMPLATES), Alias::new("code")),
+                sea_query::Order::Asc,
+            )
+            .to_owned(),
+    );
+    let rows = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
+    let mut out = Vec::new();
+    for r in &rows {
+        let text = |c: &str| r.get_text_opt(c).ok().flatten().unwrap_or_default();
+        let mut reg = PdfTemplateReg::new(
+            text("code"),
+            text("title"),
+            Format::parse(&text("format")),
+            text("body"),
+        )
+        .description(text("description"))
+        .keywords(keywords(&text("keywords")))
+        .sample(
+            serde_json::from_str(&text("sample_data")).unwrap_or(Value::Object(Default::default())),
+        );
+        if let Some(layout) = r.get_text_opt("layout_code").ok().flatten() {
+            reg = reg.layout(layout);
+        }
+        let id = r.get_int("id").unwrap_or_default();
+        let (sql, values) = build(
+            db.backend,
+            Query::select()
+                .columns(["locale", "title", "body"].map(Alias::new))
+                .from(Alias::new(TRANSLATIONS))
+                .and_where(Expr::col(Alias::new("template_id")).eq(id))
+                .order_by(Alias::new("locale"), sea_query::Order::Asc)
+                .to_owned(),
+        );
+        for t in bind_values(sqlx::query(&sql), values)
+            .fetch_all(&db.pool)
+            .await?
+        {
+            let text = |c: &str| t.get_text_opt(c).ok().flatten().unwrap_or_default();
+            reg = reg.translation(text("locale"), text("title"), text("body"));
+        }
+        out.push(reg);
+    }
+    Ok(out)
+}
+
+/// Writes `layouts` and `templates` into the database by code, over whatever
+/// is there, each marked customised so the boot sync leaves it as imported.
+/// Returns how many of each it wrote.
+pub async fn import(
+    db: &Db,
+    layouts: &[PdfLayoutReg],
+    templates: &[PdfTemplateReg],
+) -> Result<(usize, usize), sqlx::Error> {
+    for reg in layouts {
+        let id = match find(db, LAYOUTS, &reg.code).await? {
+            Some((id, _)) => {
+                update(db, LAYOUTS, id, &LAYOUT_COLUMNS, layout_values(reg), None).await?;
+                id
+            }
+            None => insert(db, LAYOUTS, &LAYOUT_COLUMNS, layout_values(reg), None).await?,
+        };
+        mark_customized(db, LAYOUTS, id).await?;
+    }
+    for reg in templates {
+        let layout_id = match &reg.layout {
+            Some(code) => find(db, LAYOUTS, code).await?.map(|(id, _)| id),
+            None => None,
+        };
+        let id = match find(db, TEMPLATES, &reg.code).await? {
+            Some((id, _)) => {
+                update(
+                    db,
+                    TEMPLATES,
+                    id,
+                    &TEMPLATE_COLUMNS,
+                    template_values(reg),
+                    Some(layout_id),
+                )
+                .await?;
+                id
+            }
+            None => {
+                insert(
+                    db,
+                    TEMPLATES,
+                    &TEMPLATE_COLUMNS,
+                    template_values(reg),
+                    Some(layout_id),
+                )
+                .await?
+            }
+        };
+        sync_translations(db, id, reg).await?;
+        mark_customized(db, TEMPLATES, id).await?;
+    }
+    Ok((layouts.len(), templates.len()))
+}
+
+async fn mark_customized(db: &Db, table: &str, id: i64) -> Result<(), sqlx::Error> {
+    let (sql, values) = build(
+        db.backend,
+        Query::update()
+            .table(Alias::new(table))
+            .value(Alias::new("customized"), 1i32)
+            .and_where(Expr::col(Alias::new("id")).eq(id))
+            .to_owned(),
+    );
+    bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await?;
+    Ok(())
+}

@@ -37,6 +37,7 @@ pub struct Pdf {
     variables: Arc<Vec<PdfVariableReg>>,
     hooks: Arc<Vec<PdfRenderHookReg>>,
     disks: Vec<(String, Arc<dyn StorageDriver>)>,
+    recorder: Option<crate::testing::Recorder>,
 }
 
 /// How one render is made.
@@ -124,6 +125,10 @@ impl Pdf {
                 .into_iter()
                 .map(|d| (d.item.name.clone(), Arc::clone(&d.item.driver)))
                 .collect(),
+            recorder: registry
+                .items::<crate::testing::Recorder>()
+                .first()
+                .map(|r| (*r).clone()),
         }
     }
 
@@ -215,6 +220,31 @@ impl Pdf {
                 .unwrap_or_default(),
             ..DocumentMeta::default()
         };
+        let stem = slug(&parts.title);
+        let filename = if stem.is_empty() {
+            slug(&parts.code)
+        } else {
+            stem
+        };
+        let filename = format!(
+            "{}.pdf",
+            if filename.is_empty() {
+                "document"
+            } else {
+                &filename
+            }
+        );
+        if let Some(recorder) = &self.recorder {
+            recorder.record(crate::testing::Recorded {
+                code: parts.code.clone(),
+                data: self.with_variables(data),
+                locale: options.locale.clone(),
+            });
+            return Ok(Rendered {
+                bytes: crate::testing::STUB.to_vec(),
+                filename,
+            });
+        }
         let job = Job {
             code: parts.code.clone(),
             format: parts.format,

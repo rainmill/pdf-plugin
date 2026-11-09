@@ -2,6 +2,7 @@ entity: pdf_layouts
 path: /layouts
 title: Layouts
 permission: rainmill.pdf.manage
+permissions: { create: rainmill.pdf.layouts.create, update: rainmill.pdf.layouts.update, delete: rainmill.pdf.layouts.delete }
 menu: { under: rainmill.pdf, order: 2 }
 list:
   creatable: true
@@ -17,9 +18,10 @@ form:
   title: Layout
   timestamps: true
   actions:
-    - { label: Preview PDF, action: "rainmill/pdf/tools/layouts/{id}/pdf", method: get }
-    - { label: Duplicate, action: "rainmill/pdf/tools/layouts/{id}/duplicate" }
-    - { label: Reset to default, action: "rainmill/pdf/tools/layouts/{id}/reset", confirm: 'Reset this layout to the version its module ships? Your changes are lost.' }
+    - { label: History, action: "rainmill/pdf/tools/layouts/{id}/history", method: get }
+    - { label: Preview PDF, action: "rainmill/pdf/tools/layouts/{id}/pdf", method: get, permission: rainmill.pdf.preview }
+    - { label: Duplicate, action: "rainmill/pdf/tools/layouts/{id}/duplicate", permission: rainmill.pdf.layouts.create }
+    - { label: Reset to default, action: "rainmill/pdf/tools/layouts/{id}/reset", confirm: 'Reset this layout to the version its module ships? Your changes are lost.', permission: rainmill.pdf.layouts.update }
   fields:
     name: { span: 1/2, rules: [required, { max_length: 120 }] }
     code: { span: 1/2, rules: [required, { max_length: 120 }], help: 'Dotted and permanent, such as acme.letterhead.' }

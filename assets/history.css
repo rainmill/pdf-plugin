@@ -1,0 +1,13 @@
+.rm-history{display:flex;flex-direction:column;gap:16px}
+.rm-history__item{padding:18px 20px}
+.rm-history__head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.rm-history__when{font-weight:var(--fw-semibold);color:var(--text-body)}
+.rm-history__who{color:var(--text-muted);font-size:var(--fs-13)}
+.rm-history__head form{margin-left:auto}
+.rm-history__changes{display:grid;grid-template-columns:minmax(120px,max-content) 1fr;gap:8px 18px;margin:0}
+.rm-history__changes dt{color:var(--text-muted);font-size:var(--fs-13)}
+.rm-history__changes dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:var(--fs-13);color:var(--text-body)}
+.rm-history__changes del{background:var(--danger-subtle);color:var(--text-body);text-decoration:line-through}
+.rm-history__changes ins{background:var(--success-subtle);color:var(--text-body);text-decoration:none}
+.rm-history__note{color:var(--text-muted);font-size:var(--fs-13);margin:0}
+@media (max-width:640px){.rm-history__changes{grid-template-columns:1fr}.rm-history__head form{margin-left:0}}

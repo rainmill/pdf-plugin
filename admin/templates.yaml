@@ -2,6 +2,7 @@ entity: pdf_templates
 path: /templates
 title: Templates
 permission: rainmill.pdf.manage
+permissions: { create: rainmill.pdf.templates.create, update: rainmill.pdf.templates.update, delete: rainmill.pdf.templates.delete }
 menu: { under: rainmill.pdf, order: 1 }
 list:
   creatable: true
@@ -18,9 +19,10 @@ form:
   title: Template
   timestamps: true
   actions:
-    - { label: Download PDF, action: "rainmill/pdf/tools/templates/{id}/pdf", method: get }
-    - { label: Duplicate, action: "rainmill/pdf/tools/templates/{id}/duplicate" }
-    - { label: Reset to default, action: "rainmill/pdf/tools/templates/{id}/reset", confirm: 'Reset this template to the version its module ships? Your changes are lost.' }
+    - { label: History, action: "rainmill/pdf/tools/templates/{id}/history", method: get }
+    - { label: Download PDF, action: "rainmill/pdf/tools/templates/{id}/pdf", method: get, permission: rainmill.pdf.preview }
+    - { label: Duplicate, action: "rainmill/pdf/tools/templates/{id}/duplicate", permission: rainmill.pdf.templates.create }
+    - { label: Reset to default, action: "rainmill/pdf/tools/templates/{id}/reset", confirm: 'Reset this template to the version its module ships? Your changes are lost.', permission: rainmill.pdf.templates.update }
   fields:
     title: { span: 1/2, rules: [required, { max_length: 160 }] }
     code: { span: 1/2, rules: [required, { max_length: 120 }], help: 'Dotted and permanent, such as acme.shop.invoice.' }

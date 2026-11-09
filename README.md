@@ -63,7 +63,21 @@ A markdown body | `{{ variables }}` filled from the data, then set in its layout
 A Typst body | Reads the data as `sys.inputs`.
 Deleting a template | Deletes its translations.
 
-Permission: `rainmill.pdf.manage`.
+Permission | Allows
+--- | ---
+`rainmill.pdf.manage` | Opening templates and layouts, read-only without the grants below, and their history
+`rainmill.pdf.preview` | The live preview, Download PDF and Preview PDF
+`rainmill.pdf.templates.create`, `.update`, `.delete` | Creating (and duplicating), saving (resetting, restoring, translations) and deleting templates
+`rainmill.pdf.layouts.create`, `.update`, `.delete` | The same for layouts
+
+### History
+
+Every save in the admin keeps a version: the last 20 per template or layout, with who saved it. **History** on the form lists them newest first, each with what changed from the one before (word by word for the body, the sample data and the overrides), and **Restore** puts one back; the version it replaces stays in the history. Deleting a record deletes its history.
+
+```rust
+let versions = rainmill_pdf::history::list(&db, "pdf_templates", id).await?;
+rainmill_pdf::history::restore(&db, "pdf_templates", id, versions[1].id, "ada").await?;
+```
 
 ### Variables and render hooks
 
@@ -125,6 +139,68 @@ The locale's language is also the document's language (hyphenation, quotes).
 `locale` | none | The translation to render.
 `output` | `Output::default()` | `Output::archival()` for PDF/A-2b, `Output::protected(password)` for AES-256 encryption.
 `author` | the layout's | The PDF's author.
+
+## On the site
+
+```twig
+<a href="{{ pdf_url('acme.shop.invoice', data={'number': order.number}) }}">Invoice</a>
+<a href="{{ pdf_url('acme.legal.terms', locale='de', download=true) }}">AGB</a>
+```
+
+```ini
+[pdf]
+template = "acme.shop.ticket"
+download = true
+label = "Download your ticket"
+```
+
+```twig
+{{ component("pdf") }}
+```
+
+Item | Gives
+--- | ---
+`pdf_url(code, data={}, locale=none, download=false)` | A link that renders the template with that data, at `/rainmill/pdf/<token>`.
+The `rainmill.pdf` component | `url` and `label` for its `template` rendered with the page's URL parameters as the data; its markup is a Download link.
+
+Link | Answers
+--- | ---
+Followed within a day | The PDF, shown or as a download.
+Followed later | `410`, asking the reader to reload the page it came from.
+Altered, or naming no template | `404`.
+A template that fails to render | `500` with a plain message; `lat pdf check` names the reason.
+
+## Testing
+
+```rust
+use rainmill_pdf::testing::Recorder;
+
+let recorder = Recorder::new();
+registry.add(recorder.clone());
+// ... run the code that renders through Pdf::new(db, &registry) ...
+recorder.assert_rendered_with("acme.shop.invoice", |data| data["number"] == "2026/7");
+recorder.assert_nothing_rendered();
+```
+
+A registered `Recorder` makes every render record its code, data (variables merged) and locale, and return `testing::STUB` instead of compiling.
+
+## Command line
+
+```bash
+lat pdf sync
+lat pdf check
+lat pdf render acme.shop.invoice --data invoice.json --locale de --out invoice.pdf
+lat pdf export pdf-export
+lat pdf import pdf-export
+```
+
+Verb | Does
+--- | ---
+`sync` | Writes the modules' templates and layouts into the database, as each start does; customised ones are left alone.
+`check` | Renders every template with its sample data, one line each; exits non-zero when any fails.
+`render <code>` | Writes one PDF: `--data` a JSON file (the sample data otherwise), `--locale`, `--out` (the title's file name otherwise), `--archival` for PDF/A.
+`export [DIR]` | Writes `layouts/<code>.yaml`, `templates/<code>.md` (front matter, then the body) and `templates/<code>/<locale>.md` per translation; `pdf-export` by default. Logos and backgrounds stay behind.
+`import DIR` | Reads an export back, writing each over the one with its code, marked customised.
 
 ## Rendering
 

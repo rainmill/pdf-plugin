@@ -4,7 +4,7 @@
 
 use laterite_core::query::{bind_values, build};
 use laterite_core::strata::async_trait;
-use laterite_core::{t, ErrorBag, ModelListener, Op, Record, SaveCx, Text};
+use laterite_core::{t, ErrorBag, ModelListener, Op, Record, SaveCx, SavedCx, Text};
 use sea_query::{Alias, Expr, Query};
 
 use crate::store::{TEMPLATES, TRANSLATIONS};
@@ -78,6 +78,44 @@ impl ModelListener for DropTranslations {
                 .and_where(Expr::col(Alias::new("template_id")).eq(id))
                 .to_owned(),
         );
+        bind_values(sqlx::query(&sql), values)
+            .execute(&mut *cx.conn())
+            .await
+            .map_err(|e| Text::from(e.to_string()))?;
+        Ok(())
+    }
+}
+
+/// Keeps a template's or layout's history: the state before its first tracked
+/// save, then a version after each save, and none left once it is deleted.
+pub(crate) struct History(pub &'static str);
+
+#[async_trait]
+impl ModelListener for History {
+    async fn before_save(
+        &self,
+        cx: &mut SaveCx<'_>,
+        rec: &mut Record,
+        op: Op,
+    ) -> Result<(), ErrorBag> {
+        if let (Op::Update, Some(id)) = (op, rec.id()) {
+            let author = cx.actor().label().to_string();
+            let backend = cx.backend();
+            // A version the record had before history began; never blocks the save.
+            let _ = crate::history::record_on(cx.conn(), backend, self.0, id, &author, true).await;
+        }
+        Ok(())
+    }
+
+    async fn after_save(&self, cx: &SavedCx<'_>, rec: &Record, _op: Op) {
+        if let Some(id) = rec.id() {
+            let _ = crate::history::record(cx.db(), self.0, id, cx.actor().label()).await;
+        }
+    }
+
+    async fn before_delete(&self, cx: &mut SaveCx<'_>, rec: &Record) -> Result<(), Text> {
+        let Some(id) = rec.id() else { return Ok(()) };
+        let (sql, values) = crate::history::drop_sql(cx.backend(), self.0, id);
         bind_values(sqlx::query(&sql), values)
             .execute(&mut *cx.conn())
             .await

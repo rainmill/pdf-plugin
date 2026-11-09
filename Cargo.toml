@@ -37,6 +37,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# Word-level diffs between saved versions on the History page.
+similar = "2"
 # QR codes and barcodes, drawn as SVG for the document to place.
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 barcoders = { version = "2", features = ["svg"] }
@@ -46,6 +48,8 @@ lopdf = { version = "0.47", default-features = false }
 getrandom = "0.4"
 # Logos, backgrounds and stored PDFs live in the media library.
 laterite-media = "0.9"
+# The theme function, component and public route that put PDFs on the site.
+laterite-web = "0.9"
 # A render compiles off the async runtime; media streams are read whole.
 tokio = { version = "1", features = ["rt"] }
 futures = "0.3"

@@ -72,6 +72,7 @@ fn app(db: &Db, mut registry: Registry) -> Router {
     let picker_sources = registry.take::<PickerSourceReg>();
     let listeners = registry.take::<laterite_core::ModelListenerReg>();
     let nav = registry.take::<laterite_admin::nav::NavItem>();
+    let assets = registry.take::<laterite_admin::AssetReg>();
     router(
         AuthService::new(db.clone(), AuthConfig::default()),
         db.clone(),
@@ -82,6 +83,7 @@ fn app(db: &Db, mut registry: Registry) -> Router {
             picker_sources,
             listeners,
             nav,
+            assets,
             plugin_defined: Arc::new(registry),
             ..Default::default()
         },
@@ -411,4 +413,142 @@ async fn a_layout_in_use_cannot_be_deleted() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(header(&headers, "content-type"), "application/pdf");
+}
+
+/// An operator who may open templates but holds no other PDF grant: they read
+/// the template, see no Save and no actions, and the tools refuse them.
+#[tokio::test]
+async fn the_per_action_grants_hold_on_templates_and_tools() {
+    let (db, _guard, registry) = setup().await;
+    let _root = superuser(&db).await;
+    let hash = laterite_auth::password::hash_password("viewerpw12345").unwrap();
+    let viewer = laterite_auth::store::create_user(
+        &db,
+        "viewer",
+        "viewer@acme.test",
+        "Viewer",
+        None,
+        &hash,
+        false,
+    )
+    .await
+    .unwrap();
+    let role = laterite_auth::store::create_role(
+        &db,
+        "pdfviewer",
+        "PDF viewer",
+        &[rainmill_pdf::admin::MANAGE.to_string()],
+    )
+    .await
+    .unwrap();
+    laterite_auth::store::assign_role(&db, viewer, role)
+        .await
+        .unwrap();
+    let token = AuthService::new(db.clone(), AuthConfig::default())
+        .authenticate("viewer", "viewerpw12345", &RequestContext::default())
+        .await
+        .unwrap()
+        .token;
+    let id = store::template(&db, Some("acme.invoice"), None)
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
+    let app = app(&db, registry);
+
+    let (status, _, html) = send(
+        app.clone(),
+        get(&format!("/admin{BASE}/templates/{id}/edit"), &token),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let html = String::from_utf8_lossy(&html).to_string();
+    assert!(html.contains("lat-fieldset"), "read-only");
+    assert!(!html.contains("Download PDF") && !html.contains("Duplicate"));
+    let csrf = csrf_of(&html);
+
+    for path in [format!("/admin{BASE}/tools/templates/{id}/pdf")] {
+        let (status, _, _) = send(app.clone(), get(&path, &token)).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{path}");
+    }
+    for path in [
+        format!("/admin{BASE}/tools/templates/{id}/duplicate"),
+        format!("/admin{BASE}/tools/templates/{id}/reset"),
+        format!("/admin{BASE}/tools/preview"),
+        format!("/admin{BASE}/templates/{id}/edit"),
+    ] {
+        let (status, _, _) = send(app.clone(), post(&path, &token, &csrf, "title=X")).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{path}");
+    }
+}
+
+/// Each save adds a version; the History page shows what changed word by word,
+/// and Restore puts an earlier version back while keeping the current one.
+#[tokio::test]
+async fn saves_are_kept_compared_and_restorable() {
+    let (db, _guard, registry) = setup().await;
+    let token = superuser(&db).await;
+    let template = store::template(&db, Some("acme.invoice"), None)
+        .await
+        .unwrap()
+        .unwrap();
+    let (id, layout) = (template.id, template.layout_id.unwrap());
+    let app = app(&db, registry);
+    let edit = format!("/admin{BASE}/templates/{id}/edit");
+    let (_, _, html) = send(app.clone(), get(&edit, &token)).await;
+    let csrf = csrf_of(&String::from_utf8_lossy(&html));
+    for body in ["Thank+you+for+your+order.", "Thank+you+for+shopping."] {
+        let form = format!(
+            "title=Invoice&code=acme.invoice&format=markdown&layout_id={layout}&body={body}&sample_data=%7B%7D"
+        );
+        let (status, _, _) = send(app.clone(), post(&edit, &token, &csrf, &form)).await;
+        assert!(status.is_redirection() || status.is_success(), "{status}");
+    }
+
+    let revisions = rainmill_pdf::history::list(&db, "pdf_templates", id)
+        .await
+        .unwrap();
+    assert_eq!(
+        revisions.len(),
+        3,
+        "the state before the first save, then two saves"
+    );
+
+    let (status, _, html) = send(
+        app.clone(),
+        get(
+            &format!("/admin{BASE}/tools/templates/{id}/history"),
+            &token,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let html = String::from_utf8_lossy(&html).to_string();
+    assert!(html.contains("<del>your order.</del>"), "{html}");
+    assert!(html.contains("<ins>shopping.</ins>"));
+    assert!(html.contains("Current") && html.contains("Restore"));
+
+    // Restore the first save.
+    let first = revisions[1].id;
+    let (status, _, _) = send(
+        app.clone(),
+        post(
+            &format!("/admin{BASE}/tools/templates/{id}/history/{first}/restore"),
+            &token,
+            &csrf,
+            "",
+        ),
+    )
+    .await;
+    assert!(status.is_redirection() || status.is_success(), "{status}");
+    let now = store::template(&db, None, Some(id)).await.unwrap().unwrap();
+    assert_eq!(now.body, "Thank you for your order.");
+    assert_eq!(
+        rainmill_pdf::history::list(&db, "pdf_templates", id)
+            .await
+            .unwrap()
+            .len(),
+        4,
+        "the restore is a version of its own"
+    );
 }

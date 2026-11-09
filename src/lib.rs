@@ -20,11 +20,18 @@
 //!     &meta, &Assets::default(), &Output::archival())?;
 //! # Ok::<(), rainmill_pdf::PdfError>(())
 //! ```
+//!
+//! Stored templates render through [`Pdf`], with the registered variables,
+//! render hooks and media disks; [`site`] puts them on the site, [`history`]
+//! keeps their saves, and [`testing::Recorder`] stands in for rendering in an
+//! application's tests.
 #![warn(missing_docs)]
 
 pub mod admin;
 pub mod codes;
+mod command;
 pub mod document;
+pub mod history;
 mod layout;
 mod listener;
 pub mod markdown;
@@ -33,7 +40,9 @@ mod pdf;
 mod protect;
 pub mod registry;
 mod render;
+pub mod site;
 pub mod store;
+pub mod testing;
 mod world;
 
 use std::sync::Arc;
@@ -75,13 +84,31 @@ impl Module for PdfModule {
 
     fn register(&self, registry: &mut Registry) {
         use laterite_admin::AdminRegistry;
-        registry.add_permission(admin::permission());
+        for permission in admin::permissions() {
+            registry.add_permission(permission);
+        }
         registry.add_nav(admin::section());
         for resource in admin::resources() {
             registry.add_resource(resource);
         }
         registry.add_picker_source(admin::layout_source());
         registry.add_screen(admin::screen());
+        registry.add_asset(admin::HISTORY_CSS, admin::history_css());
+        registry.add(command::registration());
+        let signer = site::Signer::default();
+        registry.add(laterite_admin::routes::PublicRouteReg::new(
+            site::PATH,
+            Arc::new(site::PdfRoute(signer.clone())),
+        ));
+        registry.add(laterite_web::theme::markup::MarkupReg::new(
+            "rainmill.pdf",
+            Arc::new(site::PdfMarkup(signer.clone())),
+        ));
+        registry.add(laterite_web::theme::component::ComponentReg::new(
+            "rainmill.pdf",
+            "PDF download",
+            Arc::new(site::PdfComponent(signer)),
+        ));
         for entity in [store::TEMPLATES, store::LAYOUTS] {
             registry.add(ModelListenerReg::for_entity(
                 entity,
@@ -96,6 +123,12 @@ impl Module for PdfModule {
             store::TEMPLATES,
             Arc::new(listener::DropTranslations),
         ));
+        for entity in [store::TEMPLATES, store::LAYOUTS] {
+            registry.add(ModelListenerReg::for_entity(
+                entity,
+                Arc::new(listener::History(entity)),
+            ));
+        }
     }
 
     async fn boot(&self, cx: &BootCx<'_>) -> CoreResult<()> {
