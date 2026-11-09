@@ -10,5 +10,6 @@ bump is breaking and a patch is additive.
 ### Added
 
 - A layout takes font files from the media library and a title font; `PdfFontReg` registers fonts from code.
+- `Pdf::library` adds both media library disks, so private library files render too.
 - The Typst override runs before the masthead and can redefine `doc-title` and `doc-meta`.
 - First release. PDF documents for Laterite with Typst: markdown or Typst templates, letterhead layouts, a live preview, QR codes and barcodes, PDF/A and password protection.

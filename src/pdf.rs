@@ -148,13 +148,27 @@ impl Pdf {
         }
     }
 
-    /// Adds the disk `name`, or replaces it: the media library's when the
-    /// application did not register it (`laterite_admin::medialib::library_driver`).
+    /// Adds the disk `name`, or replaces it. [`Pdf::library`] adds the media
+    /// library's two.
     pub fn disk(mut self, name: impl Into<String>, driver: Arc<dyn StorageDriver>) -> Self {
         let name = name.into();
         self.disks.retain(|(n, _)| *n != name);
         self.disks.push((name, driver));
         self
+    }
+
+    /// Adds the media library's disks, public and private, so layouts may use
+    /// any library file: the application's registered `public` and `private`
+    /// disks, else those under `storage_dir`.
+    pub fn library(self, registry: &Registry, storage_dir: &str) -> Self {
+        self.disk(
+            laterite_admin::medialib::DISK,
+            laterite_admin::medialib::library_driver(registry, storage_dir),
+        )
+        .disk(
+            laterite_admin::medialib::PRIVATE_DISK,
+            laterite_admin::medialib::private_driver(registry, storage_dir),
+        )
     }
 
     /// The database it reads templates from.

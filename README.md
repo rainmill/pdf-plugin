@@ -39,8 +39,7 @@ Render one with data through a `Pdf` handle, which carries the registered variab
 ```rust
 use rainmill_pdf::{Pdf, RenderOptions};
 
-let pdf = Pdf::new(db.clone(), &registry)
-    .disk("public", laterite_admin::medialib::library_driver(&registry, "storage"));
+let pdf = Pdf::new(db.clone(), &registry).library(&registry, "storage"); // public and private library files
 let invoice = pdf
     .render_with("acme.shop.invoice", json!({ "number": "2026/7" }), &RenderOptions::locale("de"))
     .await?;

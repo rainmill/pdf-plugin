@@ -286,8 +286,7 @@ fn read_templates(dir: &Path) -> Result<Vec<PdfTemplateReg>, CommandError> {
 }
 
 fn pdf(cx: &CommandCx<'_>) -> Pdf {
-    let library = laterite_admin::medialib::library_driver(cx.registry(), cx.storage_dir());
-    Pdf::new(cx.db().clone(), cx.registry()).disk(laterite_admin::medialib::DISK, library)
+    Pdf::new(cx.db().clone(), cx.registry()).library(cx.registry(), cx.storage_dir())
 }
 
 /// The command's registration.

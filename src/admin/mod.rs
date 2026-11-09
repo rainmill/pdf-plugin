@@ -140,12 +140,10 @@ fn registered(registry: &Registry) -> (Vec<PdfTemplateReg>, Vec<PdfLayoutReg>) {
 impl Screen for Tools {
     fn mount(&self, ctx: &RouteCtx) -> Router {
         let (templates, layouts) = registered(ctx.plugin_defined());
-        let library =
-            laterite_admin::medialib::library_driver(ctx.plugin_defined(), ctx.storage_dir());
         let cx = Cx {
             db: ctx.db().clone(),
             pdf: Pdf::new(ctx.db().clone(), ctx.plugin_defined())
-                .disk(laterite_admin::medialib::DISK, library),
+                .library(ctx.plugin_defined(), ctx.storage_dir()),
             admin_path: ctx.admin_path().to_string(),
             templates: Arc::new(templates),
             layouts: Arc::new(layouts),
