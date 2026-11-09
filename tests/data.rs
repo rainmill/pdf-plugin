@@ -454,3 +454,53 @@ async fn a_registered_font_sets_the_layout_that_names_it() {
         "without it the layout falls back"
     );
 }
+
+#[tokio::test]
+async fn a_layout_takes_its_fonts_from_the_media_library() {
+    use laterite_media::{ingest, record, stream_of, NewMedia};
+    let (db, _guard, registry) = setup(branded).await;
+    let dir = std::env::temp_dir().join(format!("rainmill-pdf-font-{}", std::process::id()));
+    let disk = Arc::new(LocalDisk::new(dir.clone()));
+    let font = include_bytes!("fonts/ZenDots-Regular.ttf");
+    let stored = ingest(disk.as_ref(), stream_of(font.to_vec()), 1 << 20)
+        .await
+        .unwrap();
+    assert_eq!(stored.content_type, "font/ttf");
+    let id = record::create(
+        &db,
+        NewMedia {
+            disk: "public".into(),
+            hash: stored.hash,
+            size: stored.size as i64,
+            content_type: stored.content_type,
+            original_name: "ZenDots-Regular.ttf".into(),
+            in_library: true,
+            created_by: None,
+        },
+    )
+    .await
+    .unwrap();
+    let (sql, values) = laterite_core::query::build(
+        db.backend,
+        sea_query::Query::update()
+            .table(sea_query::Alias::new("pdf_layouts"))
+            .value(sea_query::Alias::new("fonts"), format!("[{id}]"))
+            .and_where(sea_query::Expr::col(sea_query::Alias::new("code")).eq("acme.brand"))
+            .to_owned(),
+    );
+    laterite_core::query::bind_values(sqlx::query(&sql), values)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+
+    let out = Pdf::new(db, &registry)
+        .disk("public", disk)
+        .render("acme.branded", json!({}))
+        .await
+        .unwrap();
+    assert!(
+        out.bytes.windows(7).any(|w| w == b"ZenDots"),
+        "the layout's font is embedded"
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}

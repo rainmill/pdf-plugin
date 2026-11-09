@@ -33,6 +33,8 @@ form:
     text_colour: { span: 1/4, label: Text colour, placeholder: '#1f1f1f' }
     body_font: { span: 1/4, label: Body font, placeholder: Libertinus Serif }
     heading_font: { span: 1/4, label: Heading font }
+    title_font: { span: 1/4, label: Title font, help: 'The masthead title; the heading font when empty.' }
+    fonts: { span: full, type: media, mode: font, max: 0, label: Fonts, help: 'Font files from the media library, named by family above.' }
     size: { span: 1/4, label: Size (pt), placeholder: '10.5' }
     leading: { span: 1/4, label: Line spacing (em), placeholder: '0.7' }
     paper: { span: 1/4, placeholder: a4, help: 'a4, us-letter or any Typst paper name.' }
@@ -40,5 +42,5 @@ form:
     landscape: { type: switch, span: 1/4 }
     header: { span: 1/2, help: 'Placeholders: {title}, {version}, {effective}, {url}, {page}, {pages}.' }
     footer: { span: 1/2, placeholder: '{title} · {version} · Page {page} of {pages}' }
-    typst_override: { type: codeeditor, language: text, rows: 8, label: Typst override, help: 'Appended after the generated preamble.' }
+    typst_override: { type: codeeditor, language: text, rows: 8, label: Typst override, help: 'Runs before the masthead; may redefine doc-title(title) and doc-meta(line).' }
     css_override: { type: codeeditor, language: css, rows: 8, label: CSS override, help: 'Appended after the generated CSS variables on the web page.' }

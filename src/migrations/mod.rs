@@ -5,4 +5,5 @@ laterite_core::migration_set! {
     m0001_create_pdf,
     m0002_add_media_metadata_translations,
     m0003_create_pdf_revisions,
+    m0004_add_layout_fonts,
 }

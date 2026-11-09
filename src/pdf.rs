@@ -252,6 +252,15 @@ impl Pdf {
             layout.background = Some(path.clone());
             files.push((path, bytes));
         }
+        let mut fonts: Vec<Vec<u8>> = self.fonts.iter().map(|f| f.bytes.to_vec()).collect();
+        for id in &stored.font_ids {
+            let found = record::find(&self.db, *id)
+                .await
+                .map_err(|e| RenderError::Media(e.to_string()))?;
+            if let Some(rec) = found {
+                fonts.push(self.read(&rec).await?);
+            }
+        }
         let meta = DocumentMeta {
             title: parts.title.clone(),
             author: options
@@ -306,7 +315,7 @@ impl Pdf {
             meta,
             data: self.with_variables(data),
             files,
-            fonts: self.fonts.iter().map(|f| f.bytes.to_vec()).collect(),
+            fonts,
             hooks: self.hooks.to_vec(),
             output: options.output.clone(),
             templated: parts.templated,

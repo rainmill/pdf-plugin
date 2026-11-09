@@ -19,6 +19,8 @@ pub struct Layout {
     pub body_font: Option<String>,
     /// The heading font family, falling back to the body font.
     pub heading_font: Option<String>,
+    /// The masthead title's font family, falling back to the heading font.
+    pub title_font: Option<String>,
     /// The body size in points.
     pub size: f32,
     /// The line spacing, as Typst leading in em.
@@ -40,7 +42,10 @@ pub struct Layout {
     pub header: String,
     /// The running footer, with the same placeholders.
     pub footer: String,
-    /// Typst appended after the generated preamble, for what the settings cannot say.
+    /// Typst placed after the generated rules and before the masthead, for what
+    /// the settings cannot say. It may redefine `doc-title(title)` and
+    /// `doc-meta(line)`, the functions the masthead draws its title and its
+    /// version line with.
     pub typst_override: String,
     /// CSS appended after the generated variables, for the web page.
     pub css_override: String,
@@ -53,6 +58,7 @@ impl Default for Layout {
             text: "#1f1f1f".into(),
             body_font: None,
             heading_font: None,
+            title_font: None,
             size: 10.5,
             leading: 0.7,
             paper: "a4".into(),
@@ -124,6 +130,12 @@ impl Layout {
         let text = colour(&self.text, "#1f1f1f");
         let body = fonts(self.body_font.as_deref());
         let heading = fonts(self.heading_font.as_deref().or(self.body_font.as_deref()));
+        let title = fonts(
+            self.title_font
+                .as_deref()
+                .or(self.heading_font.as_deref())
+                .or(self.body_font.as_deref()),
+        );
         let [top, right, bottom, left] = self.margins;
         let lang = if meta.language.len() == 2 {
             meta.language.to_lowercase()
@@ -140,13 +152,13 @@ impl Layout {
         ));
         if !self.header.trim().is_empty() {
             p.push_str(&format!(
-                ", header: context text(size: 0.8em, fill: rgb(\"#6b6b6b\"))[{}]",
+                ", header: context text(size: 0.8em, fill: rgb({text}).transparentize(35%))[{}]",
                 running(&self.header, meta)
             ));
         }
         if !self.footer.trim().is_empty() {
             p.push_str(&format!(
-                ", footer: context text(size: 0.8em, fill: rgb(\"#6b6b6b\"))[{}]",
+                ", footer: context text(size: 0.8em, fill: rgb({text}).transparentize(35%))[{}]",
                 running(&self.footer, meta)
             ));
         }
@@ -171,23 +183,26 @@ impl Layout {
         ));
         p.push_str(&format!("#show link: set text(fill: rgb({accent}))\n"));
         p.push_str(&format!(
-            "#set table(stroke: 0.5pt + rgb(\"#d6d6d6\"), inset: 6pt, fill: (x, y) => if y == 0 {{ rgb({accent}).lighten(85%) }})\n"
+            "#set table(stroke: 0.5pt + rgb({text}).transparentize(80%), inset: 6pt, fill: (x, y) => if y == 0 {{ rgb({accent}).lighten(85%) }})\n"
         ));
         p.push_str("#show table.cell.where(y: 0): set text(weight: \"bold\")\n");
         p.push_str("#set quote(block: true)\n");
         p.push_str(&format!(
             "#show quote: it => block(inset: (left: 1em), stroke: (left: 2pt + rgb({accent})))[#it.body]\n"
         ));
-        p.push_str(&self.masthead(meta, &accent, &heading));
+        p.push_str(&format!(
+            "#let doc-title(title) = text(font: {title}, size: 2em, weight: \"bold\", title)\n#let doc-meta(line) = text(size: 0.85em, fill: rgb({text}).transparentize(35%), line)\n"
+        ));
         if !self.typst_override.trim().is_empty() {
             p.push_str(&self.typst_override);
             p.push('\n');
         }
+        p.push_str(&self.masthead(meta, &accent));
         p
     }
 
     /// The masthead on page one: the logo, the title, the version and date line.
-    fn masthead(&self, meta: &DocumentMeta, accent: &str, heading: &str) -> String {
+    fn masthead(&self, meta: &DocumentMeta, accent: &str) -> String {
         let mut m = String::from("#block(below: 2em)[\n");
         if let Some(logo) = &self.logo {
             m.push_str(&format!(
@@ -200,10 +215,7 @@ impl Layout {
             "#line(length: 100%, stroke: 2pt + rgb({accent}))\n#v(0.4em)\n"
         ));
         if !meta.title.is_empty() {
-            m.push_str(&format!(
-                "#text(font: {heading}, size: 2em, weight: \"bold\")[{}]\n",
-                escape(&meta.title)
-            ));
+            m.push_str(&format!("#doc-title[{}]\n", escape(&meta.title)));
         }
         let line: Vec<String> = [
             (!meta.version.is_empty()).then(|| format!("Version {}", meta.version)),
@@ -215,7 +227,7 @@ impl Layout {
         .collect();
         if !line.is_empty() {
             m.push_str(&format!(
-                "#v(0.2em)\n#text(size: 0.85em, fill: rgb(\"#6b6b6b\"))[{}]\n",
+                "#v(0.2em)\n#doc-meta[{}]\n",
                 escape(&line.join(" · "))
             ));
         }

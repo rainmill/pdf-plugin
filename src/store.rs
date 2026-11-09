@@ -24,6 +24,8 @@ pub struct StoredLayout {
     pub logo_id: Option<i64>,
     /// The media record of the page background.
     pub background_id: Option<i64>,
+    /// The media records of the layout's font files.
+    pub font_ids: Vec<i64>,
 }
 
 /// A stored template, as a render needs it.
@@ -83,6 +85,12 @@ fn stored_from_row(row: &sqlx::any::AnyRow) -> StoredLayout {
             .unwrap_or_default(),
         logo_id: row.get_int_opt("logo_id").ok().flatten(),
         background_id: row.get_int_opt("background_id").ok().flatten(),
+        font_ids: row
+            .get_text_opt("fonts")
+            .ok()
+            .flatten()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default(),
         layout,
     }
 }
@@ -117,6 +125,7 @@ fn layout_from_row(row: &sqlx::any::AnyRow) -> Layout {
         text: text("text_colour").unwrap_or(d.text),
         body_font: text("body_font"),
         heading_font: text("heading_font"),
+        title_font: text("title_font"),
         size: num("size", d.size),
         leading: num("leading", d.leading),
         paper: text("paper").unwrap_or(d.paper),
@@ -135,13 +144,14 @@ fn layout_from_row(row: &sqlx::any::AnyRow) -> Layout {
     }
 }
 
-const LAYOUT_COLUMNS: [&str; 17] = [
+const LAYOUT_COLUMNS: [&str; 18] = [
     "code",
     "name",
     "accent",
     "text_colour",
     "body_font",
     "heading_font",
+    "title_font",
     "size",
     "leading",
     "paper",
@@ -164,6 +174,7 @@ fn layout_values(reg: &PdfLayoutReg) -> Vec<sea_query::SimpleExpr> {
         l.text.clone().into(),
         l.body_font.clone().into(),
         l.heading_font.clone().into(),
+        l.title_font.clone().into(),
         l.size.to_string().into(),
         l.leading.to_string().into(),
         l.paper.clone().into(),
@@ -445,7 +456,7 @@ pub async fn layout(db: &Db, id: Option<i64>) -> Result<StoredLayout, sqlx::Erro
         db.backend,
         Query::select()
             .columns(LAYOUT_COLUMNS.map(Alias::new))
-            .columns(["logo_id", "background_id"].map(Alias::new))
+            .columns(["logo_id", "background_id", "fonts"].map(Alias::new))
             .from(Alias::new(LAYOUTS))
             .and_where(Expr::col(Alias::new("id")).eq(id))
             .to_owned(),
@@ -617,7 +628,7 @@ pub async fn duplicate(db: &Db, table: &str, id: i64) -> Result<i64, StoreError>
     let new_code = copy_code(db, table, &code).await?;
     let columns: Vec<&str> = if table == LAYOUTS {
         let mut c = LAYOUT_COLUMNS.to_vec();
-        c.extend(["logo_id", "background_id"]);
+        c.extend(["logo_id", "background_id", "fonts"]);
         c
     } else {
         [

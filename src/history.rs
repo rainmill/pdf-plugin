@@ -49,6 +49,8 @@ fn columns(table: &str) -> &'static [(&'static str, &'static str, Kind)] {
             ("text_colour", "Text colour", Text),
             ("body_font", "Body font", Text),
             ("heading_font", "Heading font", Text),
+            ("title_font", "Title font", Text),
+            ("fonts", "Fonts", Text),
             ("size", "Size", Text),
             ("leading", "Line spacing", Text),
             ("paper", "Paper", Text),

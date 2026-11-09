@@ -265,13 +265,15 @@ Key | Default | Description
 `accent` | `#bc4b2d` | Heading rules, links, the masthead line, the table header tint.
 `text` | `#1f1f1f` | Body text colour.
 `body_font`, `heading_font` | the bundled serif | Font families; a missing one falls back to Libertinus Serif.
+`title_font` | the heading font | The masthead title's font family.
+`fonts` | none | Font files for the families above. In the admin, chosen from the media library's Fonts.
 `size`, `leading` | `10.5`, `0.7` | Body size in points, line spacing in em.
 `paper`, `landscape` | `a4`, `false` | Any Typst paper name.
 `margins` | `[24, 22, 24, 22]` | Millimetres: top, right, bottom, left.
 `logo`, `logo_height` | none, `12` | A file path for the masthead logo; its height in millimetres. In the admin, chosen from the media library.
 `background` | none | A file path drawn behind every page. In the admin, chosen from the media library.
 `header`, `footer` | none, `{title} · {version} · Page {page} of {pages}` | Running parts; `{title}`, `{version}`, `{effective}`, `{url}`, `{page}`, `{pages}`.
-`typst_override` | none | Typst appended after the generated preamble.
+`typst_override` | none | Typst run after the generated rules and before the masthead; it may redefine `doc-title(title)` and `doc-meta(line)`, which draw the masthead's title and version line.
 `css_override` | none | CSS appended after `Layout::css()`'s variables.
 
 `Layout::css()` gives the same settings as CSS custom properties (`--doc-accent`, `--doc-text`, `--doc-font-body`, `--doc-font-heading`, `--doc-size`) for the web rendering of a document.
@@ -291,6 +293,7 @@ registry.add(PdfLayoutReg::new("acme.letterhead", "Letterhead", Layout {
 Source | Fonts
 --- | ---
 Bundled | `typst-assets`: Libertinus Serif, New Computer Modern, DejaVu Sans Mono and others, under the licences in that crate's `NOTICE`
+A layout's `fonts` | Files from the media library, for PDFs set in that layout
 `PdfFontReg` | TTF, OTF or TTC files a module registers, named by family in any layout, in code or in the admin
 
 ## Licence
