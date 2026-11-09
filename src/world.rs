@@ -1,7 +1,8 @@
 //! The world a document compiles in: the standard library, the bundled fonts plus
 //! any the caller adds, one main source, and the files the caller hands over by
-//! path. Nothing is read from disk or fetched from the network, so a template can
-//! reach nothing the caller did not give it.
+//! path, plus the `qr` and `barcode` library and the codes it draws. Nothing is
+//! read from disk or fetched from the network, so a template can reach nothing
+//! the caller did not give it.
 
 use std::collections::HashMap;
 
@@ -14,6 +15,8 @@ use typst::{Library, LibraryExt, World};
 
 /// The path the main source is compiled from.
 const MAIN: &str = "/main.typ";
+/// The library every document imports on its first line.
+pub(crate) const LIBRARY_PATH: &str = "/_pdf/lib.typ";
 
 /// A self-contained compilation: the source, its files and its fonts.
 pub(crate) struct DocWorld {
@@ -21,6 +24,7 @@ pub(crate) struct DocWorld {
     book: LazyHash<FontBook>,
     fonts: Vec<Font>,
     main: Source,
+    library_source: Source,
     files: HashMap<FileId, Bytes>,
 }
 
@@ -59,6 +63,7 @@ impl DocWorld {
             book: LazyHash::new(book),
             fonts,
             main,
+            library_source: Source::new(file_id(LIBRARY_PATH), crate::codes::LIBRARY.to_string()),
             files,
         }
     }
@@ -87,6 +92,8 @@ impl World for DocWorld {
     fn source(&self, id: FileId) -> FileResult<Source> {
         if id == self.main.id() {
             Ok(self.main.clone())
+        } else if id == self.library_source.id() {
+            Ok(self.library_source.clone())
         } else {
             Err(FileError::NotSource)
         }
@@ -96,10 +103,14 @@ impl World for DocWorld {
         if id == self.main.id() {
             return Ok(Bytes::from_string(self.main.clone()));
         }
-        self.files
-            .get(&id)
-            .cloned()
-            .ok_or_else(|| FileError::NotFound(Default::default()))
+        if let Some(bytes) = self.files.get(&id) {
+            return Ok(bytes.clone());
+        }
+        match crate::codes::draw(id.get().vpath().get_with_slash()) {
+            Some(Ok(svg)) => Ok(Bytes::from_string(svg)),
+            Some(Err(message)) => Err(FileError::Other(Some(message.into()))),
+            None => Err(FileError::NotFound(Default::default())),
+        }
     }
 
     fn font(&self, index: usize) -> Option<Font> {

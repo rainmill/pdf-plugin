@@ -16,10 +16,14 @@ use laterite_admin::{FlashLevel, Permission, Resource, SessionHandle};
 use laterite_core::{t, Db, Registry};
 use serde_json::Value;
 
-use crate::document::{render_body, RenderError};
+use crate::document::RenderError;
+use crate::pdf::Parts;
 use crate::registry::{Format, PdfLayoutReg, PdfTemplateReg};
 use crate::store::{self, StoreError, LAYOUTS, TEMPLATES};
-use crate::{DocumentMeta, Output};
+use crate::{Pdf, RenderOptions, Rendered};
+
+/// The settings item holding templates and layouts as tabs.
+pub const SECTION: &str = "rainmill.pdf";
 
 /// The permission for every PDF screen.
 pub const MANAGE: &str = "rainmill.pdf.manage";
@@ -28,6 +32,15 @@ pub const LAYOUT_SOURCE: &str = "rainmill.pdf.layouts";
 
 pub(crate) fn permission() -> Permission {
     Permission::new(MANAGE, t!("Manage PDF templates and layouts"), t!("PDF"))
+}
+
+pub(crate) fn section() -> laterite_admin::nav::NavItem {
+    laterite_admin::nav::NavItem::section(SECTION, t!("PDF Templates"))
+        .icon("file-text")
+        .description(t!("Edit the templates and layouts PDFs are made from."))
+        .slot(laterite_core::arrange::slot::SYSTEM)
+        .order(16)
+        .in_settings(t!("System"))
 }
 
 pub(crate) fn resources() -> Vec<Resource> {
@@ -55,6 +68,7 @@ struct Tools;
 #[derive(Clone)]
 struct Cx {
     db: Db,
+    pdf: Pdf,
     admin_path: String,
     templates: Arc<Vec<PdfTemplateReg>>,
     layouts: Arc<Vec<PdfLayoutReg>>,
@@ -87,8 +101,12 @@ fn registered(registry: &Registry) -> (Vec<PdfTemplateReg>, Vec<PdfLayoutReg>) {
 impl Screen for Tools {
     fn mount(&self, ctx: &RouteCtx) -> Router {
         let (templates, layouts) = registered(ctx.plugin_defined());
+        let library =
+            laterite_admin::medialib::library_driver(ctx.plugin_defined(), ctx.storage_dir());
         let cx = Cx {
             db: ctx.db().clone(),
+            pdf: Pdf::new(ctx.db().clone(), ctx.plugin_defined())
+                .disk(laterite_admin::medialib::DISK, library),
             admin_path: ctx.admin_path().to_string(),
             templates: Arc::new(templates),
             layouts: Arc::new(layouts),
@@ -151,21 +169,6 @@ impl Screen for Tools {
     }
 }
 
-fn pdf_response(bytes: Vec<u8>, name: &str) -> Response {
-    (
-        [
-            (header::CONTENT_TYPE, "application/pdf".to_string()),
-            (
-                header::CONTENT_DISPOSITION,
-                format!("inline; filename=\"{name}.pdf\""),
-            ),
-            (header::CACHE_CONTROL, "no-store".to_string()),
-        ],
-        bytes,
-    )
-        .into_response()
-}
-
 /// A message in the preview pane, in place of the document.
 fn pane_message(message: &str) -> Response {
     let escaped = message
@@ -194,30 +197,23 @@ async fn preview(cx: Cx, form: HashMap<String, String>) -> Response {
             Err(e) => return pane_message(&format!("The sample data is not valid JSON: {e}")),
         },
     };
-    let layout_id = field("layout_id").trim().parse().ok();
-    let mut layout = match store::layout(&cx.db, layout_id).await {
-        Ok(l) => l,
-        Err(e) => return pane_message(&e.to_string()),
-    };
-    if !field("paper").trim().is_empty() {
-        layout.paper = field("paper").trim().to_string();
-    }
-    if matches!(field("landscape"), "1" | "on" | "true") {
-        layout.landscape = true;
-    }
-    let meta = DocumentMeta {
+    let parts = Parts {
+        code: field("code").trim().to_string(),
         title: field("title").to_string(),
-        ..DocumentMeta::default()
+        format: Format::parse(field("format")),
+        body: field("text").to_string(),
+        layout_id: field("layout_id").trim().parse().ok(),
+        paper: Some(field("paper").trim().to_string()).filter(|p| !p.is_empty()),
+        landscape: matches!(field("landscape"), "1" | "on" | "true"),
+        description: field("description").to_string(),
+        keywords: Vec::new(),
     };
-    match render_body(
-        Format::parse(field("format")),
-        field("text"),
-        &layout,
-        &meta,
-        &data,
-        Output::default(),
-    ) {
-        Ok(pdf) => pdf_response(pdf, "preview"),
+    match cx
+        .pdf
+        .render_parts(parts, data, &RenderOptions::default())
+        .await
+    {
+        Ok(pdf) => pdf.inline(),
         Err(e) => pane_message(&e.to_string()),
     }
 }
@@ -227,57 +223,39 @@ async fn template_pdf(cx: Cx, id: i64) -> Response {
     let Ok(Some(template)) = store::template(&cx.db, None, Some(id)).await else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let result = async {
-        let mut layout = store::layout(&cx.db, template.layout_id).await?;
-        if let Some(paper) = &template.paper {
-            layout.paper = paper.clone();
-        }
-        layout.landscape = layout.landscape || template.landscape;
-        let meta = DocumentMeta {
-            title: template.title.clone(),
-            ..DocumentMeta::default()
-        };
-        render_body(
-            template.format,
-            &template.body,
-            &layout,
-            &meta,
-            &template.sample_data,
-            Output::default(),
-        )
-    }
-    .await;
-    match result {
-        Ok(pdf) => pdf_response(pdf, &template.code),
-        Err(RenderError::Db(e)) => {
-            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-        }
-        Err(e) => (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response(),
-    }
+    let data = template.sample_data.clone();
+    respond(
+        cx.pdf
+            .render_parts(Parts::from(&template), data, &RenderOptions::default())
+            .await,
+    )
 }
 
 /// A layout shown with a sample page of text, to judge the letterhead.
 async fn layout_pdf(cx: Cx, id: i64) -> Response {
-    let layout = match store::layout(&cx.db, Some(id)).await {
+    let stored = match store::layout(&cx.db, Some(id)).await {
         Ok(l) => l,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     };
-    let meta = DocumentMeta {
+    let parts = Parts {
+        code: "layout".into(),
         title: "Sample document".into(),
-        version: "1.0".into(),
-        effective: chrono::Utc::now().format("%-d %B %Y").to_string(),
-        ..DocumentMeta::default()
+        body: "## A heading\n\nBody text in the layout's font and colour, with a [link](https://acme.com) and **strong** words.\n\n| Column | Column |\n| --- | --- |\n| Cell | Cell |\n\n> A quoted line.\n".into(),
+        ..Parts::default()
     };
-    let sample = "## A heading\n\nBody text in the layout's font and colour, with a [link](https://acme.com) and **strong** words.\n\n| Column | Column |\n| --- | --- |\n| Cell | Cell |\n\n> A quoted line.\n";
-    match render_body(
-        Format::Markdown,
-        sample,
-        &layout,
-        &meta,
-        &Value::Null,
-        Output::default(),
-    ) {
-        Ok(pdf) => pdf_response(pdf, "layout"),
+    respond(
+        cx.pdf
+            .render_in(parts, stored, Value::Null, &RenderOptions::default())
+            .await,
+    )
+}
+
+fn respond(result: Result<Rendered, RenderError>) -> Response {
+    match result {
+        Ok(pdf) => pdf.inline(),
+        Err(RenderError::Db(e)) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
         Err(e) => (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response(),
     }
 }

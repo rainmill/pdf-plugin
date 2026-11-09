@@ -1,7 +1,8 @@
 entity: pdf_layouts
 path: /layouts
-title: PDF layouts
+title: Layouts
 permission: rainmill.pdf.manage
+menu: { under: rainmill.pdf, order: 2 }
 list:
   creatable: true
   deletable: true
@@ -22,6 +23,10 @@ form:
   fields:
     name: { span: 1/2, rules: [required, { max_length: 120 }] }
     code: { span: 1/2, rules: [required, { max_length: 120 }], help: 'Dotted and permanent, such as acme.letterhead.' }
+    logo_id: { span: 1/4, type: media, mode: image, label: Logo }
+    logo_height: { span: 1/4, label: Logo height (mm), placeholder: '12' }
+    background_id: { span: 1/4, type: media, mode: image, label: Page background }
+    author: { span: 1/4, help: 'Written into every PDF set in this layout.' }
     accent: { span: 1/4, placeholder: '#bc4b2d', help: 'Rules, links, the masthead line.' }
     text_colour: { span: 1/4, label: Text colour, placeholder: '#1f1f1f' }
     body_font: { span: 1/4, label: Body font, placeholder: Libertinus Serif }

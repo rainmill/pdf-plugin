@@ -17,17 +17,20 @@
 //!     ..DocumentMeta::default()
 //! };
 //! let pdf = render_markdown("# Who we are\n\nAcme runs this site.", &Layout::default(),
-//!     &meta, &Assets::default(), Output { archival: true })?;
+//!     &meta, &Assets::default(), &Output::archival())?;
 //! # Ok::<(), rainmill_pdf::PdfError>(())
 //! ```
 #![warn(missing_docs)]
 
 pub mod admin;
+pub mod codes;
 pub mod document;
 mod layout;
 mod listener;
 pub mod markdown;
 pub mod migrations;
+mod pdf;
+mod protect;
 pub mod registry;
 mod render;
 pub mod store;
@@ -40,9 +43,12 @@ use laterite_core::{
     BootCx, CoreResult, MigrationSet, ModelListenerReg, Module, ModuleId, Registry,
 };
 
-pub use document::{render, RenderError};
+pub use document::{render_body, RenderError};
 pub use layout::{DocumentMeta, Layout};
-pub use registry::{Format, PdfLayoutReg, PdfTemplateReg};
+pub use pdf::{Pdf, RenderOptions, Rendered};
+pub use registry::{
+    Format, PdfLayoutReg, PdfRenderHookReg, PdfTemplateReg, PdfVariableReg, RenderHook,
+};
 pub use render::{markdown_source, render_markdown, render_typst, Assets, Output, PdfError};
 
 /// This plugin's entry point, collected by the generated plugins manifest.
@@ -70,6 +76,7 @@ impl Module for PdfModule {
     fn register(&self, registry: &mut Registry) {
         use laterite_admin::AdminRegistry;
         registry.add_permission(admin::permission());
+        registry.add_nav(admin::section());
         for resource in admin::resources() {
             registry.add_resource(resource);
         }
@@ -84,6 +91,10 @@ impl Module for PdfModule {
         registry.add(ModelListenerReg::for_entity(
             store::LAYOUTS,
             Arc::new(listener::LayoutInUse),
+        ));
+        registry.add(ModelListenerReg::for_entity(
+            store::TEMPLATES,
+            Arc::new(listener::DropTranslations),
         ));
     }
 

@@ -11,6 +11,20 @@ use crate::Layout;
 
 pub(crate) const LAYOUTS: &str = "pdf_layouts";
 pub(crate) const TEMPLATES: &str = "pdf_templates";
+pub(crate) const TRANSLATIONS: &str = "pdf_template_translations";
+
+/// A stored layout: its settings, and what lives beside them.
+#[derive(Debug, Clone, Default)]
+pub struct StoredLayout {
+    /// The settings; `logo` and `background` are filled in at render.
+    pub layout: Layout,
+    /// The author written into the PDF, or empty.
+    pub author: String,
+    /// The media record of the masthead logo.
+    pub logo_id: Option<i64>,
+    /// The media record of the page background.
+    pub background_id: Option<i64>,
+}
 
 /// A stored template, as a render needs it.
 #[derive(Debug, Clone)]
@@ -33,6 +47,18 @@ pub struct Template {
     pub landscape: bool,
     /// The preview data.
     pub sample_data: Value,
+    /// What it is for: the PDF's description.
+    pub description: String,
+    /// Search keywords written into the PDF.
+    pub keywords: Vec<String>,
+}
+
+/// Comma-separated keywords as a list.
+fn keywords(text: &str) -> Vec<String> {
+    text.split(',')
+        .map(|k| k.trim().to_string())
+        .filter(|k| !k.is_empty())
+        .collect()
 }
 
 fn now() -> String {
@@ -44,6 +70,21 @@ fn margins_text(m: [f32; 4]) -> String {
         .map(|v| v.to_string())
         .collect::<Vec<_>>()
         .join(",")
+}
+
+/// The layout a row holds, defaults standing in for empty columns.
+fn stored_from_row(row: &sqlx::any::AnyRow) -> StoredLayout {
+    let layout = layout_from_row(row);
+    StoredLayout {
+        author: row
+            .get_text_opt("author")
+            .ok()
+            .flatten()
+            .unwrap_or_default(),
+        logo_id: row.get_int_opt("logo_id").ok().flatten(),
+        background_id: row.get_int_opt("background_id").ok().flatten(),
+        layout,
+    }
 }
 
 /// The layout settings a row holds, defaults standing in for empty columns.
@@ -89,11 +130,12 @@ fn layout_from_row(row: &sqlx::any::AnyRow) -> Layout {
             .unwrap_or(d.footer),
         typst_override: text("typst_override").unwrap_or_default(),
         css_override: text("css_override").unwrap_or_default(),
+        logo_height: num("logo_height", d.logo_height),
         ..d
     }
 }
 
-const LAYOUT_COLUMNS: [&str; 15] = [
+const LAYOUT_COLUMNS: [&str; 17] = [
     "code",
     "name",
     "accent",
@@ -109,6 +151,8 @@ const LAYOUT_COLUMNS: [&str; 15] = [
     "footer",
     "typst_override",
     "css_override",
+    "logo_height",
+    "author",
 ];
 
 fn layout_values(reg: &PdfLayoutReg) -> Vec<sea_query::SimpleExpr> {
@@ -129,16 +173,19 @@ fn layout_values(reg: &PdfLayoutReg) -> Vec<sea_query::SimpleExpr> {
         l.footer.clone().into(),
         l.typst_override.clone().into(),
         l.css_override.clone().into(),
+        l.logo_height.to_string().into(),
+        reg.author.clone().into(),
     ]
 }
 
-const TEMPLATE_COLUMNS: [&str; 6] = [
+const TEMPLATE_COLUMNS: [&str; 7] = [
     "code",
     "title",
     "description",
     "format",
     "body",
     "sample_data",
+    "keywords",
 ];
 
 fn template_values(reg: &PdfTemplateReg) -> Vec<sea_query::SimpleExpr> {
@@ -151,6 +198,7 @@ fn template_values(reg: &PdfTemplateReg) -> Vec<sea_query::SimpleExpr> {
         serde_json::to_string_pretty(&reg.sample_data)
             .unwrap_or_default()
             .into(),
+        reg.keywords.join(", ").into(),
     ]
 }
 
@@ -199,7 +247,7 @@ pub async fn sync(
             Some(code) => find(db, LAYOUTS, code).await?.map(|(id, _)| id),
             None => None,
         };
-        match find(db, TEMPLATES, &reg.code).await? {
+        let id = match find(db, TEMPLATES, &reg.code).await? {
             None => {
                 insert(
                     db,
@@ -208,7 +256,7 @@ pub async fn sync(
                     template_values(reg),
                     Some(layout_id),
                 )
-                .await?;
+                .await?
             }
             Some((id, false)) => {
                 update(
@@ -219,12 +267,118 @@ pub async fn sync(
                     template_values(reg),
                     Some(layout_id),
                 )
-                .await?
+                .await?;
+                id
             }
-            Some((_, true)) => {}
-        }
+            Some((_, true)) => continue,
+        };
+        sync_translations(db, id, reg).await?;
     }
     Ok(())
+}
+
+/// Writes a registered template's translations under the row `template_id`.
+async fn sync_translations(
+    db: &Db,
+    template_id: i64,
+    reg: &PdfTemplateReg,
+) -> Result<(), sqlx::Error> {
+    for (locale, title, body) in &reg.translations {
+        let existing = {
+            let (sql, values) = build(
+                db.backend,
+                Query::select()
+                    .column(Alias::new("id"))
+                    .from(Alias::new(TRANSLATIONS))
+                    .and_where(Expr::col(Alias::new("template_id")).eq(template_id))
+                    .and_where(Expr::col(Alias::new("locale")).eq(locale.as_str()))
+                    .to_owned(),
+            );
+            bind_values(sqlx::query(&sql), values)
+                .fetch_optional(&db.pool)
+                .await?
+                .and_then(|r| r.get_int("id").ok())
+        };
+        let (sql, values) = match existing {
+            Some(id) => build(
+                db.backend,
+                Query::update()
+                    .table(Alias::new(TRANSLATIONS))
+                    .value(Alias::new("title"), title.as_str())
+                    .value(Alias::new("body"), body.as_str())
+                    .value(Alias::new("updated_at"), now())
+                    .and_where(Expr::col(Alias::new("id")).eq(id))
+                    .to_owned(),
+            ),
+            None => build(
+                db.backend,
+                Query::insert()
+                    .into_table(Alias::new(TRANSLATIONS))
+                    .columns(
+                        [
+                            "template_id",
+                            "locale",
+                            "title",
+                            "body",
+                            "created_at",
+                            "updated_at",
+                        ]
+                        .map(Alias::new),
+                    )
+                    .values_panic([
+                        template_id.into(),
+                        locale.as_str().into(),
+                        title.as_str().into(),
+                        body.as_str().into(),
+                        now().into(),
+                        now().into(),
+                    ])
+                    .to_owned(),
+            ),
+        };
+        bind_values(sqlx::query(&sql), values)
+            .execute(&db.pool)
+            .await?;
+    }
+    Ok(())
+}
+
+/// The title and body of template `template_id` in the first of `locales` it
+/// has; an empty title or body keeps the template's own.
+pub async fn translation(
+    db: &Db,
+    template_id: i64,
+    locales: &[String],
+) -> Result<Option<(Option<String>, Option<String>)>, sqlx::Error> {
+    if locales.is_empty() {
+        return Ok(None);
+    }
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns(["locale", "title", "body"].map(Alias::new))
+            .from(Alias::new(TRANSLATIONS))
+            .and_where(Expr::col(Alias::new("template_id")).eq(template_id))
+            .and_where(Expr::col(Alias::new("locale")).is_in(locales.iter().map(String::as_str)))
+            .to_owned(),
+    );
+    let rows = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
+    let nonempty = |r: &sqlx::any::AnyRow, c: &str| {
+        r.get_text_opt(c)
+            .ok()
+            .flatten()
+            .filter(|s| !s.trim().is_empty())
+    };
+    Ok(locales.iter().find_map(|wanted| {
+        rows.iter()
+            .find(|r| {
+                r.get_text("locale")
+                    .is_ok_and(|l| l.eq_ignore_ascii_case(wanted))
+            })
+            .map(|r| (nonempty(r, "title"), nonempty(r, "body")))
+    }))
 }
 
 /// Inserts a row and returns its id. Renders the statement before anything is
@@ -283,14 +437,15 @@ fn update<'a>(
 }
 
 /// The layout with `id`, or the default layout when there is none.
-pub async fn layout(db: &Db, id: Option<i64>) -> Result<Layout, sqlx::Error> {
+pub async fn layout(db: &Db, id: Option<i64>) -> Result<StoredLayout, sqlx::Error> {
     let Some(id) = id else {
-        return Ok(Layout::default());
+        return Ok(StoredLayout::default());
     };
     let (sql, values) = build(
         db.backend,
         Query::select()
             .columns(LAYOUT_COLUMNS.map(Alias::new))
+            .columns(["logo_id", "background_id"].map(Alias::new))
             .from(Alias::new(LAYOUTS))
             .and_where(Expr::col(Alias::new("id")).eq(id))
             .to_owned(),
@@ -298,7 +453,7 @@ pub async fn layout(db: &Db, id: Option<i64>) -> Result<Layout, sqlx::Error> {
     let row = bind_values(sqlx::query(&sql), values)
         .fetch_optional(&db.pool)
         .await?;
-    Ok(row.as_ref().map(layout_from_row).unwrap_or_default())
+    Ok(row.as_ref().map(stored_from_row).unwrap_or_default())
 }
 
 /// The template with `code`, or with `id` when `code` is `None`.
@@ -322,6 +477,8 @@ pub async fn template(
                     "paper",
                     "landscape",
                     "sample_data",
+                    "description",
+                    "keywords",
                 ]
                 .map(Alias::new),
             )
@@ -355,6 +512,17 @@ pub async fn template(
             .flatten()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or(Value::Object(Default::default())),
+        description: r
+            .get_text_opt("description")
+            .ok()
+            .flatten()
+            .unwrap_or_default(),
+        keywords: keywords(
+            &r.get_text_opt("keywords")
+                .ok()
+                .flatten()
+                .unwrap_or_default(),
+        ),
     }))
 }
 
@@ -448,7 +616,9 @@ pub async fn duplicate(db: &Db, table: &str, id: i64) -> Result<i64, StoreError>
     let code = code_of(db, table, id).await?.ok_or(StoreError::NotFound)?;
     let new_code = copy_code(db, table, &code).await?;
     let columns: Vec<&str> = if table == LAYOUTS {
-        LAYOUT_COLUMNS.to_vec()
+        let mut c = LAYOUT_COLUMNS.to_vec();
+        c.extend(["logo_id", "background_id"]);
+        c
     } else {
         [
             "code",
@@ -460,6 +630,7 @@ pub async fn duplicate(db: &Db, table: &str, id: i64) -> Result<i64, StoreError>
             "paper",
             "landscape",
             "sample_data",
+            "keywords",
         ]
         .to_vec()
     };
@@ -481,7 +652,9 @@ pub async fn duplicate(db: &Db, table: &str, id: i64) -> Result<i64, StoreError>
             let v: sea_query::SimpleExpr = match *c {
                 "code" => new_code.clone().into(),
                 "landscape" => i32::from(row.get_bool(c).unwrap_or(false)).into(),
-                "layout_id" => row.get_int_opt(c).ok().flatten().into(),
+                "layout_id" | "logo_id" | "background_id" => {
+                    row.get_int_opt(c).ok().flatten().into()
+                }
                 _ => row.get_text_opt(c).ok().flatten().into(),
             };
             values.push(v);
@@ -491,7 +664,58 @@ pub async fn duplicate(db: &Db, table: &str, id: i64) -> Result<i64, StoreError>
         values.push(1i32.into());
         insert(db, table, &cols, values, None)
     };
-    Ok(pending.await?)
+    let copy = pending.await?;
+    if table == TEMPLATES {
+        copy_translations(db, id, copy).await?;
+    }
+    Ok(copy)
+}
+
+/// Copies template `from`'s translations onto template `to`.
+async fn copy_translations(db: &Db, from: i64, to: i64) -> Result<(), sqlx::Error> {
+    let (sql, values) = build(
+        db.backend,
+        Query::select()
+            .columns(["locale", "title", "body"].map(Alias::new))
+            .from(Alias::new(TRANSLATIONS))
+            .and_where(Expr::col(Alias::new("template_id")).eq(from))
+            .to_owned(),
+    );
+    let rows = bind_values(sqlx::query(&sql), values)
+        .fetch_all(&db.pool)
+        .await?;
+    for r in rows {
+        let text = |c: &str| r.get_text_opt(c).ok().flatten();
+        let (sql, values) = build(
+            db.backend,
+            Query::insert()
+                .into_table(Alias::new(TRANSLATIONS))
+                .columns(
+                    [
+                        "template_id",
+                        "locale",
+                        "title",
+                        "body",
+                        "created_at",
+                        "updated_at",
+                    ]
+                    .map(Alias::new),
+                )
+                .values_panic([
+                    to.into(),
+                    text("locale").into(),
+                    text("title").into(),
+                    text("body").into(),
+                    now().into(),
+                    now().into(),
+                ])
+                .to_owned(),
+        );
+        bind_values(sqlx::query(&sql), values)
+            .execute(&db.pool)
+            .await?;
+    }
+    Ok(())
 }
 
 /// How many templates are set in the layout `id`.

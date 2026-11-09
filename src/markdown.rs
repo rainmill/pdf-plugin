@@ -24,6 +24,7 @@ pub fn to_typst(markdown: &str, images: ImageResolver<'_>) -> String {
         lists: Vec::new(),
         table: None,
         image: None,
+        image_size: String::new(),
         code: false,
         links: Vec::new(),
         footnote: None,
@@ -84,6 +85,8 @@ struct Writer<'a> {
     table: Option<Table>,
     /// An image being read: its URL; its alt text collects in the top buffer.
     image: Option<String>,
+    /// The image's size arguments, from its title (`, width: 30mm`).
+    image_size: String,
     /// Inside a code block: text is kept as written.
     code: bool,
     /// The URLs of the links being read, innermost last.
@@ -184,8 +187,11 @@ impl Writer<'_> {
                 }
             }
             Tag::TableRow => {}
-            Tag::Image { dest_url, .. } => {
+            Tag::Image {
+                dest_url, title, ..
+            } => {
                 self.image = Some(dest_url.to_string());
+                self.image_size = size(&title);
                 self.open();
             }
             Tag::HtmlBlock
@@ -289,7 +295,7 @@ impl Writer<'_> {
                 let alt = self.close();
                 let url = self.image.take().unwrap_or_default();
                 let placed = match (self.images)(&url) {
-                    Some(path) => format!("#image({})", string(&path)),
+                    Some(path) => format!("#image({}{})", string(&path), self.image_size),
                     None => format!("#emph[{}]", alt.trim()),
                 };
                 self.push(&placed);
@@ -365,5 +371,26 @@ pub(crate) fn string(s: &str) -> String {
         }
     }
     out.push('"');
+    out
+}
+
+/// Typst size arguments from an image title such as `width=30mm` or
+/// `width=40%, height=2cm`; anything else in the title is ignored.
+fn size(title: &str) -> String {
+    let mut out = String::new();
+    for part in title.split(',') {
+        let Some((key, value)) = part.split_once('=') else {
+            continue;
+        };
+        let (key, value) = (key.trim(), value.trim());
+        if !matches!(key, "width" | "height") {
+            continue;
+        }
+        let number = value.trim_end_matches(|c: char| c.is_ascii_alphabetic() || c == '%');
+        let unit = &value[number.len()..];
+        if number.parse::<f32>().is_ok() && matches!(unit, "mm" | "cm" | "in" | "pt" | "em" | "%") {
+            out.push_str(&format!(", {key}: {number}{unit}"));
+        }
+    }
     out
 }

@@ -2,6 +2,8 @@
 //! database at boot, where the admin can edit them; an edited one is marked
 //! customised and no longer follows the code, until it is reset to default.
 
+use std::sync::Arc;
+
 use serde_json::Value;
 
 use crate::Layout;
@@ -43,6 +45,8 @@ pub struct PdfLayoutReg {
     pub name: String,
     /// The settings.
     pub layout: Layout,
+    /// The author written into every PDF set in it: the issuing organisation.
+    pub author: String,
 }
 
 impl PdfLayoutReg {
@@ -52,7 +56,14 @@ impl PdfLayoutReg {
             code: code.into(),
             name: name.into(),
             layout,
+            author: String::new(),
         }
+    }
+
+    /// Writes `author` into every PDF set in it.
+    pub fn author(mut self, author: impl Into<String>) -> Self {
+        self.author = author.into();
+        self
     }
 }
 
@@ -73,6 +84,10 @@ pub struct PdfTemplateReg {
     pub layout: Option<String>,
     /// The data the admin previews it with.
     pub sample_data: Value,
+    /// Search keywords written into the PDF.
+    pub keywords: Vec<String>,
+    /// The title and body in other locales: `(locale, title, body)`.
+    pub translations: Vec<(String, String, String)>,
 }
 
 impl PdfTemplateReg {
@@ -91,7 +106,27 @@ impl PdfTemplateReg {
             body: body.into(),
             layout: None,
             sample_data: Value::Object(Default::default()),
+            keywords: Vec::new(),
+            translations: Vec::new(),
         }
+    }
+
+    /// Writes `keywords` into the PDF.
+    pub fn keywords<I: IntoIterator<Item = S>, S: Into<String>>(mut self, keywords: I) -> Self {
+        self.keywords = keywords.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// The title and body for `locale` (`de`, `pt-BR`), in the same format.
+    pub fn translation(
+        mut self,
+        locale: impl Into<String>,
+        title: impl Into<String>,
+        body: impl Into<String>,
+    ) -> Self {
+        self.translations
+            .push((locale.into(), title.into(), body.into()));
+        self
     }
 
     /// Says what it is for.
@@ -110,5 +145,79 @@ impl PdfTemplateReg {
     pub fn sample(mut self, data: Value) -> Self {
         self.sample_data = data;
         self
+    }
+}
+
+/// A value every template can read, registered by a module:
+/// `registry.add(PdfVariableReg::new("company", json!({ "name": "Acme" })))`.
+/// The data a render is called with wins over a variable of the same name.
+#[derive(Debug, Clone)]
+pub struct PdfVariableReg {
+    /// The top-level name templates read it under.
+    pub name: String,
+    /// The value.
+    pub value: Value,
+}
+
+impl PdfVariableReg {
+    /// A variable `name` holding `value`.
+    pub fn new(name: impl Into<String>, value: Value) -> Self {
+        Self {
+            name: name.into(),
+            value,
+        }
+    }
+}
+
+/// Changes a render on its way through: the data before the template sees it,
+/// and the Typst source before it compiles.
+pub trait RenderHook: Send + Sync {
+    /// The data template `code` renders with, changed or as it came.
+    fn data(&self, code: &str, data: Value) -> Value {
+        let _ = code;
+        data
+    }
+
+    /// The Typst source template `code` compiles, changed or as it came. A
+    /// markdown template's source is its layout's preamble and the converted body.
+    fn source(&self, code: &str, source: String) -> String {
+        let _ = code;
+        source
+    }
+}
+
+/// A [`RenderHook`] a module registers, for every template or for one code:
+/// `registry.add(PdfRenderHookReg::new(Arc::new(StampDraft)).only("acme.shop.invoice"))`.
+#[derive(Clone)]
+pub struct PdfRenderHookReg {
+    /// The hook.
+    pub hook: Arc<dyn RenderHook>,
+    /// The template it runs for; every template when `None`.
+    pub code: Option<String>,
+}
+
+impl PdfRenderHookReg {
+    /// `hook`, run for every template.
+    pub fn new(hook: Arc<dyn RenderHook>) -> Self {
+        Self { hook, code: None }
+    }
+
+    /// Runs it for template `code` alone.
+    pub fn only(mut self, code: impl Into<String>) -> Self {
+        self.code = Some(code.into());
+        self
+    }
+
+    /// Whether it runs for template `code`.
+    pub fn applies(&self, code: &str) -> bool {
+        self.code.as_deref().is_none_or(|c| c == code)
+    }
+}
+
+impl std::fmt::Debug for PdfRenderHookReg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PdfRenderHookReg")
+            .field("code", &self.code)
+            .finish_non_exhaustive()
     }
 }

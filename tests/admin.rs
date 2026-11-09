@@ -71,6 +71,7 @@ fn app(db: &Db, mut registry: Registry) -> Router {
     let permissions = registry.take::<Permission>();
     let picker_sources = registry.take::<PickerSourceReg>();
     let listeners = registry.take::<laterite_core::ModelListenerReg>();
+    let nav = registry.take::<laterite_admin::nav::NavItem>();
     router(
         AuthService::new(db.clone(), AuthConfig::default()),
         db.clone(),
@@ -80,6 +81,7 @@ fn app(db: &Db, mut registry: Registry) -> Router {
             permissions,
             picker_sources,
             listeners,
+            nav,
             plugin_defined: Arc::new(registry),
             ..Default::default()
         },

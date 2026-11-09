@@ -37,13 +37,14 @@ We rely on your consent for **all of it**, and you can withdraw it at any time.[
         url: "https://acme.com/legal/privacy".into(),
         author: "Acme".into(),
         language: "en".into(),
+        ..DocumentMeta::default()
     };
     let pdf = render_markdown(
         markdown,
         &Layout::default(),
         &meta,
         &Assets::default(),
-        Output { archival: true },
+        &Output::archival(),
     )
     .expect("renders");
     std::fs::write(&out, pdf).expect("writes");

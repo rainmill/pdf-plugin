@@ -18,6 +18,7 @@ fn meta() -> DocumentMeta {
         url: "https://acme.com/legal/terms".into(),
         author: "Acme".into(),
         language: "en".into(),
+        ..DocumentMeta::default()
     }
 }
 
@@ -80,7 +81,7 @@ fn every_markdown_construct_becomes_typst_that_compiles() {
         &Layout::default(),
         &meta(),
         &Assets::default(),
-        Output::default(),
+        &Output::default(),
     )
     .expect("the sample renders");
     assert!(pdf.starts_with(b"%PDF-"), "a PDF");
@@ -97,7 +98,7 @@ fn text_that_looks_like_typst_stays_text() {
     assert!(typst.contains("\\@label \\<tag\\>"), "{typst}");
     assert!(typst.contains("2\\. not a list"), "{typst}");
     assert!(typst.contains("\\/\\/ comment"), "{typst}");
-    render_typst(&typst, &Assets::default(), Output::default()).expect("still compiles");
+    render_typst(&typst, &meta(), &Assets::default(), &Output::default()).expect("still compiles");
 }
 
 #[test]
@@ -124,7 +125,7 @@ fn an_image_renders_when_its_file_is_handed_over() {
         &layout,
         &meta(),
         &assets,
-        Output::default(),
+        &Output::default(),
     )
     .expect("renders with the image and the masthead logo");
 }
@@ -170,7 +171,7 @@ fn the_layout_sets_the_page_type_and_running_parts() {
         &layout,
         &meta(),
         &Assets::default(),
-        Output::default(),
+        &Output::default(),
     )
     .expect("a missing font falls back to the bundled serif");
 }
@@ -188,15 +189,16 @@ fn typst_reads_its_inputs() {
         ..Assets::default()
     };
     let source = "#let d = sys.inputs\nInvoice #d.number: #for l in d.lines [#l.item × #l.qty]";
-    render_typst(source, &assets, Output::default()).expect("renders with inputs");
+    render_typst(source, &meta(), &assets, &Output::default()).expect("renders with inputs");
 }
 
 #[test]
 fn a_compile_error_names_its_line() {
     let err = render_typst(
         "Fine.\n#undefined-function()",
+        &meta(),
         &Assets::default(),
-        Output::default(),
+        &Output::default(),
     )
     .expect_err("does not compile");
     match err {
@@ -217,7 +219,7 @@ fn archival_output_is_pdf_a() {
         &Layout::default(),
         &meta(),
         &Assets::default(),
-        Output { archival: true },
+        &Output::archival(),
     )
     .expect("renders as PDF/A");
     let text = String::from_utf8_lossy(&pdf);

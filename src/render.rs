@@ -21,12 +21,42 @@ pub struct Assets {
 }
 
 /// How the PDF is written.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Default)]
 pub struct Output {
     /// PDF/A-2b: the archival standard, with every font embedded and no external
     /// dependencies. For records that must still open in decades (a published
     /// version of a policy).
     pub archival: bool,
+    /// The password the PDF opens with (AES-256). PDF/A forbids encryption, so
+    /// this and `archival` cannot be combined.
+    pub password: Option<String>,
+}
+
+impl std::fmt::Debug for Output {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Output")
+            .field("archival", &self.archival)
+            .field("password", &self.password.as_ref().map(|_| "***"))
+            .finish()
+    }
+}
+
+impl Output {
+    /// PDF/A-2b output.
+    pub fn archival() -> Self {
+        Self {
+            archival: true,
+            ..Self::default()
+        }
+    }
+
+    /// Output that opens only with `password`.
+    pub fn protected(password: impl Into<String>) -> Self {
+        Self {
+            password: Some(password.into()),
+            ..Self::default()
+        }
+    }
 }
 
 /// Why a render failed.
@@ -38,22 +68,63 @@ pub enum PdfError {
     /// The compiled document could not be written as a PDF.
     #[error("the PDF could not be written: {0}")]
     Export(String),
+    /// The PDF could not be password protected.
+    #[error("the PDF could not be protected: {0}")]
+    Protect(String),
 }
 
-/// A PDF compiled from Typst `source` with `assets`.
-pub fn render_typst(source: &str, assets: &Assets, output: Output) -> Result<Vec<u8>, PdfError> {
+/// The line every document starts with: the `qr` and `barcode` library.
+pub(crate) const IMPORT: &str = "#import \"/_pdf/lib.typ\": *\n";
+
+/// A PDF compiled from Typst `source` with `assets`, its metadata from `meta`
+/// unless the source sets its own with `#set document(..)`. The source may call
+/// `qr(value)` and `barcode(value, kind: "ean13")`.
+pub fn render_typst(
+    source: &str,
+    meta: &DocumentMeta,
+    assets: &Assets,
+    output: &Output,
+) -> Result<Vec<u8>, PdfError> {
+    let prelude = format!("{IMPORT}{}\n", meta.document_rule());
+    compile(&prelude, source, assets, output)
+}
+
+/// Compiles `prelude` then `source`; compile errors count lines from `source`.
+pub(crate) fn compile(
+    prelude: &str,
+    source: &str,
+    assets: &Assets,
+    output: &Output,
+) -> Result<Vec<u8>, PdfError> {
+    if output.archival && output.password.is_some() {
+        return Err(PdfError::Protect(
+            "PDF/A forbids encryption: choose archival or a password".into(),
+        ));
+    }
+    let offset = prelude.matches('\n').count();
+    let full = format!("{prelude}{source}");
     let mut inputs = Dict::new();
     for (key, value) in &assets.inputs {
         inputs.insert(key.as_str().into(), json_to_value(value));
     }
-    let world = DocWorld::new(source.to_string(), &assets.files, &assets.fonts, inputs);
+    let world = DocWorld::new(full.clone(), &assets.files, &assets.fonts, inputs);
     let compiled = typst::compile::<PagedDocument>(&world);
     let document = compiled.output.map_err(|errors| {
         PdfError::Compile(
             errors
                 .iter()
                 .map(|e| {
-                    let line = world_line(source, &world, e.span);
+                    // An error inside the library (a barcode that cannot hold
+                    // its value) is reported at the template's call.
+                    let line = world_line(&full, &world, e.span)
+                        .or_else(|| {
+                            e.trace
+                                .iter()
+                                .rev()
+                                .find_map(|t| world_line(&full, &world, t.span))
+                        })
+                        .and_then(|l| l.checked_sub(offset))
+                        .filter(|l| *l > 0);
                     match line {
                         Some(l) => format!("line {l}: {}", e.message),
                         None => e.message.to_string(),
@@ -75,7 +146,7 @@ pub fn render_typst(source: &str, assets: &Assets, output: Output) -> Result<Vec
         standards,
         ..PdfOptions::default()
     };
-    typst_pdf::pdf(&document, &options).map_err(|errors| {
+    let pdf = typst_pdf::pdf(&document, &options).map_err(|errors| {
         PdfError::Export(
             errors
                 .iter()
@@ -83,21 +154,26 @@ pub fn render_typst(source: &str, assets: &Assets, output: Output) -> Result<Vec
                 .collect::<Vec<_>>()
                 .join("; "),
         )
-    })
+    })?;
+    match &output.password {
+        Some(password) => crate::protect::encrypt(&pdf, password).map_err(PdfError::Protect),
+        None => Ok(pdf),
+    }
 }
 
 /// A PDF of `markdown` set in `layout`, described by `meta`. Images in the
-/// markdown are placed when `assets.files` holds a file at their URL's path;
-/// otherwise their alt text stands in.
+/// markdown are placed when `assets.files` holds a file at their URL's path, or
+/// the path is a generated code ([`crate::codes::qr_path`]); otherwise their alt
+/// text stands in. An image's title sizes it: `![Logo](/logo.png "width=30mm")`.
 pub fn render_markdown(
     markdown_text: &str,
     layout: &Layout,
     meta: &DocumentMeta,
     assets: &Assets,
-    output: Output,
+    output: &Output,
 ) -> Result<Vec<u8>, PdfError> {
     let source = markdown_source(markdown_text, layout, meta, assets);
-    render_typst(&source, assets, output)
+    compile(IMPORT, &source, assets, output)
 }
 
 /// The Typst source `render_markdown` compiles: the layout's preamble, then the
@@ -115,10 +191,11 @@ pub fn markdown_source(
         } else {
             format!("/{url}")
         };
-        known
-            .iter()
-            .any(|k| *k == path || format!("/{}", k.trim_start_matches('/')) == path)
-            .then_some(path)
+        (path.starts_with(crate::codes::ROOT)
+            || known
+                .iter()
+                .any(|k| *k == path || format!("/{}", k.trim_start_matches('/')) == path))
+        .then_some(path)
     };
     let mut source = layout.preamble(meta);
     source.push('\n');
@@ -141,8 +218,13 @@ fn now() -> Option<typst::foundations::Datetime> {
 }
 
 /// The 1-based line of `span` in the main source, when it points there.
-fn world_line(source: &str, world: &DocWorld, span: typst::syntax::DiagSpan) -> Option<usize> {
+fn world_line(
+    source: &str,
+    world: &DocWorld,
+    span: impl Into<typst::syntax::DiagSpan>,
+) -> Option<usize> {
     use typst::{World, WorldExt};
+    let span = span.into();
     let id = span.id()?;
     if id != world.main() {
         return None;

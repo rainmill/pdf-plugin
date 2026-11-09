@@ -86,6 +86,34 @@ pub struct DocumentMeta {
     pub author: String,
     /// The language, as a two-letter code (`en`).
     pub language: String,
+    /// What the document is about: the PDF's description (subject).
+    pub description: String,
+    /// Search keywords written into the PDF.
+    pub keywords: Vec<String>,
+}
+
+impl DocumentMeta {
+    /// The Typst `#set document(..)` rule carrying this metadata.
+    pub fn document_rule(&self) -> String {
+        let mut args = vec![
+            format!("title: {}", string(&self.title)),
+            format!("author: {}", string(&self.author)),
+        ];
+        if !self.description.trim().is_empty() {
+            args.push(format!("description: {}", string(&self.description)));
+        }
+        let keywords: Vec<String> = self
+            .keywords
+            .iter()
+            .map(|k| k.trim())
+            .filter(|k| !k.is_empty())
+            .map(string)
+            .collect();
+        if !keywords.is_empty() {
+            args.push(format!("keywords: ({},)", keywords.join(", ")));
+        }
+        format!("#set document({})", args.join(", "))
+    }
 }
 
 impl Layout {
@@ -103,11 +131,8 @@ impl Layout {
             "en".into()
         };
         let mut p = String::new();
-        p.push_str(&format!(
-            "#set document(title: {}, author: {})\n",
-            string(&meta.title),
-            string(&meta.author)
-        ));
+        p.push_str(&meta.document_rule());
+        p.push('\n');
         p.push_str(&format!(
             "#set page(paper: {}, flipped: {}, margin: (top: {top}mm, right: {right}mm, bottom: {bottom}mm, left: {left}mm)",
             string(&self.paper),

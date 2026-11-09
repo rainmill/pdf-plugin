@@ -1,7 +1,8 @@
 entity: pdf_templates
 path: /templates
-title: PDF templates
+title: Templates
 permission: rainmill.pdf.manage
+menu: { under: rainmill.pdf, order: 1 }
 list:
   creatable: true
   deletable: true
@@ -30,7 +31,8 @@ form:
     layout_id: { span: 1/4, type: reference, source: rainmill.pdf.layouts, label: Layout }
     paper: { span: 1/4, placeholder: From the layout }
     landscape: { type: switch, span: 1/4 }
-    description: { type: textarea, rows: 2 }
+    description: { type: textarea, rows: 2, span: 3/4, help: 'Also the PDF description.' }
+    keywords: { span: 1/4, help: 'Comma separated, written into the PDF.' }
     body:
       type: markdown
       preview: side
@@ -41,4 +43,19 @@ form:
       language: json
       rows: 8
       label: Sample data
-      help: 'A JSON object the preview renders with: {{ name }} in markdown, sys.inputs.name in Typst.'
+      help: 'A JSON object the preview renders with: {{ name }} in markdown, sys.inputs.name in Typst. Codes: {{ qr(value) }} and {{ barcode(value, kind="ean13") }}; qr(value) and barcode(value) in Typst.'
+relations:
+  translations:
+    label: Translation
+    entity: pdf_template_translations
+    foreign_key: template_id
+    list:
+      columns:
+        locale: {}
+        title: {}
+        updated_at: { type: datetime, label: Updated }
+    form:
+      fields:
+        locale: { span: 1/4, rules: [required, { max_length: 35 }], help: 'Such as de or pt-BR.' }
+        title: { span: 3/4, help: 'Empty keeps the template title.' }
+        body: { type: markdown, rows: 16, help: 'Same format as the template. Empty keeps the template body.' }

@@ -3,4 +3,5 @@
 laterite_core::migration_set! {
     module_id: "rainmill.pdf",
     m0001_create_pdf,
+    m0002_add_media_metadata_translations,
 }
