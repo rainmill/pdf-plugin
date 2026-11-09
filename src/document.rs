@@ -39,6 +39,7 @@ pub(crate) struct Job {
     pub meta: DocumentMeta,
     pub data: Value,
     pub files: Vec<(String, Vec<u8>)>,
+    pub fonts: Vec<Vec<u8>>,
     pub hooks: Vec<PdfRenderHookReg>,
     pub output: Output,
     /// A markdown body's `{{ variables }}` are filled; off for a document a
@@ -60,6 +61,7 @@ impl Job {
         }
         let mut assets = Assets {
             files: self.files,
+            fonts: self.fonts,
             ..Assets::default()
         };
         if let Value::Object(map) = &data {
@@ -108,6 +110,7 @@ pub fn render_body(
         meta: meta.clone(),
         data: data.clone(),
         files: Vec::new(),
+        fonts: Vec::new(),
         hooks: Vec::new(),
         output: output.clone(),
         templated: true,

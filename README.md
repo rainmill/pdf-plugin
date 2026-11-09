@@ -276,9 +276,22 @@ Key | Default | Description
 
 `Layout::css()` gives the same settings as CSS custom properties (`--doc-accent`, `--doc-text`, `--doc-font-body`, `--doc-font-heading`, `--doc-size`) for the web rendering of a document.
 
-## Bundled fonts
+## Fonts
 
-The bundled fonts come from `typst-assets` (Libertinus Serif, New Computer Modern, DejaVu Sans Mono and others) under their own licences, listed in that crate's `NOTICE`.
+```rust
+// in a module's register()
+registry.add(PdfFontReg::new(include_bytes!("fonts/AcmeSans-Regular.ttf")));
+registry.add(PdfFontReg::new(include_bytes!("fonts/AcmeSans-Bold.ttf")));
+registry.add(PdfLayoutReg::new("acme.letterhead", "Letterhead", Layout {
+    body_font: Some("Acme Sans".into()),
+    ..Layout::default()
+}));
+```
+
+Source | Fonts
+--- | ---
+Bundled | `typst-assets`: Libertinus Serif, New Computer Modern, DejaVu Sans Mono and others, under the licences in that crate's `NOTICE`
+`PdfFontReg` | TTF, OTF or TTC files a module registers, named by family in any layout, in code or in the admin
 
 ## Licence
 

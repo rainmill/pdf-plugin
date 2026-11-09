@@ -36,6 +36,24 @@ impl Format {
     }
 }
 
+/// A font file a module hands to the renderer (TTF, OTF or TTC), named by its
+/// family in any layout's `body_font` or `heading_font`:
+/// `registry.add(PdfFontReg::new(include_bytes!("fonts/AcmeSans.ttf")))`.
+#[derive(Debug, Clone)]
+pub struct PdfFontReg {
+    /// The font file.
+    pub bytes: Arc<[u8]>,
+}
+
+impl PdfFontReg {
+    /// The font in `bytes`.
+    pub fn new(bytes: impl AsRef<[u8]>) -> Self {
+        Self {
+            bytes: Arc::from(bytes.as_ref()),
+        }
+    }
+}
+
 /// A layout a module ships.
 #[derive(Debug, Clone)]
 pub struct PdfLayoutReg {

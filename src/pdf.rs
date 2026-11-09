@@ -13,7 +13,7 @@ use laterite_media::{
 use serde_json::Value;
 
 use crate::document::{Job, RenderError};
-use crate::registry::{Format, PdfRenderHookReg, PdfVariableReg};
+use crate::registry::{Format, PdfFontReg, PdfRenderHookReg, PdfVariableReg};
 use crate::store::{self, StoredLayout, Template};
 use crate::{DocumentMeta, Output};
 
@@ -36,6 +36,7 @@ pub struct Pdf {
     db: Db,
     variables: Arc<Vec<PdfVariableReg>>,
     hooks: Arc<Vec<PdfRenderHookReg>>,
+    fonts: Arc<Vec<PdfFontReg>>,
     disks: Vec<(String, Arc<dyn StorageDriver>)>,
     recorder: Option<crate::testing::Recorder>,
 }
@@ -124,6 +125,13 @@ impl Pdf {
             hooks: Arc::new(
                 registry
                     .items::<PdfRenderHookReg>()
+                    .into_iter()
+                    .cloned()
+                    .collect(),
+            ),
+            fonts: Arc::new(
+                registry
+                    .items::<PdfFontReg>()
                     .into_iter()
                     .cloned()
                     .collect(),
@@ -298,6 +306,7 @@ impl Pdf {
             meta,
             data: self.with_variables(data),
             files,
+            fonts: self.fonts.iter().map(|f| f.bytes.to_vec()).collect(),
             hooks: self.hooks.to_vec(),
             output: options.output.clone(),
             templated: parts.templated,

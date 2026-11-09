@@ -9,4 +9,5 @@ bump is breaking and a patch is additive.
 
 ### Added
 
+- `PdfFontReg` registers a font file that any layout can then name as its body or heading font.
 - First release. PDF documents for Laterite with Typst: markdown or Typst templates, letterhead layouts, a live preview, QR codes and barcodes, PDF/A and password protection.

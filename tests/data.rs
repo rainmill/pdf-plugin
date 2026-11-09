@@ -406,3 +406,51 @@ async fn a_document_renders_verbatim_with_its_version_in_the_masthead() {
     );
     assert_eq!(out.filename, "privacy-policy.pdf");
 }
+
+fn branded(r: &mut Registry) {
+    r.add(rainmill_pdf::PdfLayoutReg::new(
+        "acme.brand",
+        "Brand",
+        Layout {
+            heading_font: Some("Zen Dots".into()),
+            ..Layout::default()
+        },
+    ));
+    r.add(
+        PdfTemplateReg::new(
+            "acme.branded",
+            "Branded",
+            Format::Markdown,
+            "# Hello\n\nBody.",
+        )
+        .layout("acme.brand"),
+    );
+}
+
+#[tokio::test]
+async fn a_registered_font_sets_the_layout_that_names_it() {
+    let font = include_bytes!("fonts/ZenDots-Regular.ttf");
+    let (db, _guard, registry) = setup(|r| {
+        branded(r);
+        r.add(rainmill_pdf::PdfFontReg::new(font));
+    })
+    .await;
+    let out = Pdf::new(db, &registry)
+        .render("acme.branded", json!({}))
+        .await
+        .unwrap();
+    assert!(
+        out.bytes.windows(7).any(|w| w == b"ZenDots"),
+        "the registered font is embedded"
+    );
+
+    let (db, _guard, registry) = setup(branded).await;
+    let out = Pdf::new(db, &registry)
+        .render("acme.branded", json!({}))
+        .await
+        .unwrap();
+    assert!(
+        !out.bytes.windows(7).any(|w| w == b"ZenDots"),
+        "without it the layout falls back"
+    );
+}

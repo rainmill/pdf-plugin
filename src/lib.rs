@@ -56,7 +56,7 @@ pub use document::{render_body, RenderError};
 pub use layout::{DocumentMeta, Layout};
 pub use pdf::{Pdf, RenderOptions, Rendered};
 pub use registry::{
-    Format, PdfLayoutReg, PdfRenderHookReg, PdfTemplateReg, PdfVariableReg, RenderHook,
+    Format, PdfFontReg, PdfLayoutReg, PdfRenderHookReg, PdfTemplateReg, PdfVariableReg, RenderHook,
 };
 pub use render::{markdown_source, render_markdown, render_typst, Assets, Output, PdfError};
 
