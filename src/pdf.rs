@@ -83,6 +83,12 @@ pub(crate) struct Parts {
     pub landscape: bool,
     pub description: String,
     pub keywords: Vec<String>,
+    pub version: String,
+    pub effective: String,
+    pub url: String,
+    pub author: String,
+    /// Fill `{{ variables }}` in a markdown body.
+    pub templated: bool,
 }
 
 impl From<&Template> for Parts {
@@ -97,6 +103,8 @@ impl From<&Template> for Parts {
             landscape: t.landscape,
             description: t.description.clone(),
             keywords: t.keywords.clone(),
+            templated: true,
+            ..Self::default()
         }
     }
 }
@@ -174,6 +182,34 @@ impl Pdf {
         self.render_parts(parts, data, options).await
     }
 
+    /// `body` (markdown, taken verbatim) set in the layout `layout_id`, or the
+    /// default layout when `None`, described by `meta`: its title, version,
+    /// effective date and URL fill the masthead and running parts. For a
+    /// document a module keeps itself, such as a versioned policy.
+    pub async fn render_document(
+        &self,
+        body: &str,
+        layout_id: Option<i64>,
+        meta: DocumentMeta,
+        options: &RenderOptions,
+    ) -> Result<Rendered, RenderError> {
+        let parts = Parts {
+            code: meta.title.clone(),
+            title: meta.title,
+            body: body.to_string(),
+            layout_id,
+            description: meta.description,
+            keywords: meta.keywords,
+            version: meta.version,
+            effective: meta.effective,
+            url: meta.url,
+            author: meta.author,
+            templated: false,
+            ..Parts::default()
+        };
+        self.render_parts(parts, Value::Null, options).await
+    }
+
     /// `parts` rendered with `data`: the layout and its media loaded, the
     /// variables merged under the data, compiled off the async runtime.
     pub(crate) async fn render_parts(
@@ -210,15 +246,24 @@ impl Pdf {
         }
         let meta = DocumentMeta {
             title: parts.title.clone(),
-            author: options.author.clone().unwrap_or(stored.author),
+            author: options
+                .author
+                .clone()
+                .unwrap_or(if parts.author.is_empty() {
+                    stored.author
+                } else {
+                    parts.author.clone()
+                }),
             description: parts.description,
             keywords: parts.keywords,
+            version: parts.version,
+            effective: parts.effective,
+            url: parts.url,
             language: options
                 .locale
                 .as_deref()
                 .map(|l| l.split(['-', '_']).next().unwrap_or(l).to_string())
                 .unwrap_or_default(),
-            ..DocumentMeta::default()
         };
         let stem = slug(&parts.title);
         let filename = if stem.is_empty() {
@@ -255,6 +300,7 @@ impl Pdf {
             files,
             hooks: self.hooks.to_vec(),
             output: options.output.clone(),
+            templated: parts.templated,
         };
         let bytes = tokio::task::spawn_blocking(move || job.run())
             .await

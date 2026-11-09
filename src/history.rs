@@ -351,9 +351,9 @@ pub fn changes(
         .collect()
 }
 
-/// `old` to `new` word by word, each run of changes shown whole: what went,
-/// then what replaced it.
-fn word_diff(old: &str, new: &str) -> String {
+/// `old` to `new` word by word as escaped HTML, each run of changes shown
+/// whole: what went in `<del>`, then what replaced it in `<ins>`.
+pub fn word_diff(old: &str, new: &str) -> String {
     use similar::{ChangeTag, TextDiff};
     let diff = TextDiff::from_words(old, new);
     let tokens: Vec<(ChangeTag, &str)> = diff
@@ -362,15 +362,26 @@ fn word_diff(old: &str, new: &str) -> String {
         .collect();
     let (mut out, mut gone, mut added) = (String::new(), String::new(), String::new());
     let flush = |out: &mut String, gone: &mut String, added: &mut String| {
-        if !gone.is_empty() {
+        // Whitespace at a run's edges (a line break before an added line)
+        // stays outside the marks, so the text keeps its shape.
+        let edge = if added.trim().is_empty() {
+            &*gone
+        } else {
+            &*added
+        };
+        let lead = &edge[..edge.len() - edge.trim_start().len()];
+        let trail = &edge[edge.trim_end().len()..];
+        out.push_str(&escape(lead));
+        if !gone.trim().is_empty() {
             out.push_str(&format!("<del>{}</del>", escape(gone.trim())));
         }
-        if !gone.is_empty() && !added.is_empty() {
+        if !gone.trim().is_empty() && !added.trim().is_empty() {
             out.push(' ');
         }
-        if !added.is_empty() {
+        if !added.trim().is_empty() {
             out.push_str(&format!("<ins>{}</ins>", escape(added.trim())));
         }
+        out.push_str(&escape(trail));
         gone.clear();
         added.clear();
     };
@@ -399,7 +410,8 @@ fn word_diff(old: &str, new: &str) -> String {
     out
 }
 
-pub(crate) fn escape(text: &str) -> String {
+/// `text` safe inside HTML text and attributes.
+pub fn escape(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
@@ -433,6 +445,17 @@ mod tests {
         assert_eq!(
             c[0].html,
             "Acme runs <del>&lt;this&gt;</del> <ins>that</ins> site."
+        );
+    }
+
+    #[test]
+    fn an_added_line_keeps_its_line_break() {
+        assert_eq!(
+            word_diff(
+                "- phone\n- email\n\nEnd.",
+                "- phone\n- email\n- handle\n\nEnd."
+            ),
+            "- phone\n- email\n<ins>- handle</ins>\n\nEnd."
         );
     }
 

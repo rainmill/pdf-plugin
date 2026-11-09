@@ -288,7 +288,8 @@ async fn preview(cx: Cx, form: HashMap<String, String>) -> Response {
         paper: Some(field("paper").trim().to_string()).filter(|p| !p.is_empty()),
         landscape: matches!(field("landscape"), "1" | "on" | "true"),
         description: field("description").to_string(),
-        keywords: Vec::new(),
+        templated: true,
+        ..Parts::default()
     };
     match cx
         .pdf

@@ -41,6 +41,9 @@ pub(crate) struct Job {
     pub files: Vec<(String, Vec<u8>)>,
     pub hooks: Vec<PdfRenderHookReg>,
     pub output: Output,
+    /// A markdown body's `{{ variables }}` are filled; off for a document a
+    /// module keeps verbatim, such as a legal text.
+    pub templated: bool,
 }
 
 impl Job {
@@ -64,7 +67,11 @@ impl Job {
         }
         let (prelude, source) = match self.format {
             Format::Markdown => {
-                let filled = fill(&self.body, &data)?;
+                let filled = if self.templated {
+                    fill(&self.body, &data)?
+                } else {
+                    self.body.clone()
+                };
                 (
                     IMPORT.to_string(),
                     markdown_source(&filled, &self.layout, &self.meta, &assets),
@@ -103,6 +110,7 @@ pub fn render_body(
         files: Vec::new(),
         hooks: Vec::new(),
         output: output.clone(),
+        templated: true,
     }
     .run()
 }

@@ -381,3 +381,28 @@ async fn a_layout_logo_comes_from_the_media_library() {
     );
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[tokio::test]
+async fn a_document_renders_verbatim_with_its_version_in_the_masthead() {
+    let (db, _guard, registry) = setup(|_| {}).await;
+    let meta = DocumentMeta {
+        title: "Privacy Policy".into(),
+        version: "2.1".into(),
+        effective: "9 November 2026".into(),
+        ..DocumentMeta::default()
+    };
+    let out = Pdf::new(db, &registry)
+        .render_document("Write {{ to }} us.", None, meta, &RenderOptions::default())
+        .await
+        .unwrap();
+    let text = text_of(&out.bytes);
+    assert!(
+        text.contains("{{ to }}") || text.contains("{{to}}"),
+        "taken verbatim: {text}"
+    );
+    assert!(
+        text.contains("2.1"),
+        "the version is in the masthead: {text}"
+    );
+    assert_eq!(out.filename, "privacy-policy.pdf");
+}
