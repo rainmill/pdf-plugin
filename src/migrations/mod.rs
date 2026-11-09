@@ -1,0 +1,6 @@
+//! This plugin's migrations, in apply order.
+
+laterite_core::migration_set! {
+    module_id: "rainmill.pdf",
+    m0001_create_pdf,
+}

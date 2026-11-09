@@ -17,6 +17,41 @@ let pdf = render_markdown("## Who we are\n\nAcme runs this site.", &layout, &met
     &Assets::default(), Output { archival: true })?;
 ```
 
+## Templates in the admin
+
+Register the module (`rainmill_pdf::module()`) and the admin gains **PDF templates** and **PDF layouts** under `/admin/rainmill/pdf`. A template's body is edited beside a live PDF of it, rendered with the form's layout and sample data as they stand.
+
+Ship templates and layouts from code; they are written into the database at boot:
+
+```rust
+use rainmill_pdf::{Format, Layout, PdfLayoutReg, PdfTemplateReg};
+
+registry.add(PdfLayoutReg::new("acme.letterhead", "Acme letterhead", Layout::default()));
+registry.add(
+    PdfTemplateReg::new("acme.shop.invoice", "Invoice", Format::Markdown, include_str!("invoice.md"))
+        .layout("acme.letterhead")
+        .sample(serde_json::json!({ "number": "2026/1" })),
+);
+```
+
+Render one with data:
+
+```rust
+let pdf = rainmill_pdf::render(&db, "acme.shop.invoice", json!({ "number": "2026/7" }), Output::default()).await?;
+```
+
+Behaviour | Result
+--- | ---
+Editing a registered template or layout in the admin | Marked customised; later boots leave it alone.
+Reset to default | Restores what the module ships and clears the customised flag.
+Duplicate | A customised copy under `<code>_copy` (`_copy2`, ...).
+Changing a code | Refused: code and other templates refer to it.
+Deleting a layout a template is set in | Refused, naming how many templates use it.
+A markdown body | `{{ variables }}` filled from the data, then set in its layout.
+A Typst body | Reads the data as `sys.inputs`.
+
+Permission: `rainmill.pdf.manage`.
+
 ## Rendering
 
 Function | Takes | Returns

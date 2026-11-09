@@ -1,0 +1,37 @@
+entity: pdf_layouts
+path: /layouts
+title: PDF layouts
+permission: rainmill.pdf.manage
+list:
+  creatable: true
+  deletable: true
+  order_by: name
+  search: { prompt: Search layouts }
+  columns:
+    name: { searchable: true }
+    code: { searchable: true }
+    customized: { type: boolean, label: Customised }
+    updated_at: { type: datetime, label: Updated }
+form:
+  title: Layout
+  timestamps: true
+  actions:
+    - { label: Preview PDF, action: "rainmill/pdf/tools/layouts/{id}/pdf", method: get }
+    - { label: Duplicate, action: "rainmill/pdf/tools/layouts/{id}/duplicate" }
+    - { label: Reset to default, action: "rainmill/pdf/tools/layouts/{id}/reset", confirm: 'Reset this layout to the version its module ships? Your changes are lost.' }
+  fields:
+    name: { span: 1/2, rules: [required, { max_length: 120 }] }
+    code: { span: 1/2, rules: [required, { max_length: 120 }], help: 'Dotted and permanent, such as acme.letterhead.' }
+    accent: { span: 1/4, placeholder: '#bc4b2d', help: 'Rules, links, the masthead line.' }
+    text_colour: { span: 1/4, label: Text colour, placeholder: '#1f1f1f' }
+    body_font: { span: 1/4, label: Body font, placeholder: Libertinus Serif }
+    heading_font: { span: 1/4, label: Heading font }
+    size: { span: 1/4, label: Size (pt), placeholder: '10.5' }
+    leading: { span: 1/4, label: Line spacing (em), placeholder: '0.7' }
+    paper: { span: 1/4, placeholder: a4, help: 'a4, us-letter or any Typst paper name.' }
+    margins: { span: 1/4, label: Margins (mm), placeholder: '24,22,24,22', help: 'Top, right, bottom, left.' }
+    landscape: { type: switch, span: 1/4 }
+    header: { span: 1/2, help: 'Placeholders: {title}, {version}, {effective}, {url}, {page}, {pages}.' }
+    footer: { span: 1/2, placeholder: '{title} · {version} · Page {page} of {pages}' }
+    typst_override: { type: codeeditor, language: text, rows: 8, label: Typst override, help: 'Appended after the generated preamble.' }
+    css_override: { type: codeeditor, language: css, rows: 8, label: CSS override, help: 'Appended after the generated CSS variables on the web page.' }

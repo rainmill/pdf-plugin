@@ -15,6 +15,8 @@ plugin = "rainmill.pdf"
 # Laterite crates are version-only; the building workspace patches them to the
 # local checkout until Laterite publishes (see the location plugin's notes).
 laterite-core = "0.9"
+# The admin screens: template and layout resources, the preview and action routes.
+laterite-admin = "0.9"
 # Typst lays out and writes the PDF; typst-assets supplies its standard library's
 # bundled fonts so a render needs nothing installed on the server.
 typst = "0.15"
@@ -24,7 +26,20 @@ typst-layout = "0.15"
 typst-assets = { version = "0.15", features = ["fonts"] }
 # Markdown is parsed with the same parser the framework's renderer uses.
 pulldown-cmark = { version = "0.13", default-features = false }
+# A markdown template's `{{ variables }}`, the template language the framework's
+# themes use.
+minijinja = { version = "3", features = ["serde"] }
+# Queries through the framework's portable layer (re-exports arrive with the
+# framework's dependency hygiene slice).
+sea-query = { version = "0.32", features = ["derive"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "any"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[dev-dependencies]
+laterite-core = { version = "0.9", features = ["sqlite", "postgres", "testing"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+laterite-auth = "0.9"
+tower = { version = "0.5", features = ["util"] }
