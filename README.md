@@ -30,7 +30,7 @@ registry.add(PdfLayoutReg::new("acme.letterhead", "Acme letterhead", Layout::def
 registry.add(
     PdfTemplateReg::new("acme.shop.invoice", "Invoice", Format::Markdown, include_str!("invoice.md"))
         .layout("acme.letterhead")
-        .sample(serde_json::json!({ "number": "2026/1" })),
+        .sample(laterite_core::serde_json::json!({ "number": "2026/1" })),
 );
 ```
 

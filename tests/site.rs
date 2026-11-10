@@ -2,6 +2,8 @@
 //! tampered link renders nothing, the component offers a Download link, and a
 //! registered recorder captures renders without compiling.
 
+use laterite_core::minijinja;
+use laterite_core::serde_json;
 use std::sync::Arc;
 
 use laterite_admin::axum::body::Body;

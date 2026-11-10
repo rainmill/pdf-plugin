@@ -2,6 +2,7 @@
 //! database at boot, where the admin can edit them; an edited one is marked
 //! customised and no longer follows the code, until it is reset to default.
 
+use laterite_core::serde_json;
 use std::sync::Arc;
 
 use serde_json::Value;

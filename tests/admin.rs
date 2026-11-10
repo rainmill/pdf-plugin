@@ -1,6 +1,8 @@
 //! The admin through the real router: registered templates synced at boot, the
 //! customised flag, reset and duplicate, the live preview, and the guards.
 
+use laterite_core::serde_json;
+use laterite_core::sqlx;
 use std::sync::Arc;
 
 use laterite_admin::axum::body::Body;

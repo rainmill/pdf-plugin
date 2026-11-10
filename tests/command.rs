@@ -1,6 +1,7 @@
 //! `lat pdf`, run through its registration as the application binary runs it:
 //! check, render, and an export read back by import.
 
+use laterite_core::serde_json;
 use laterite_core::{CommandCx, CommandReg, Module, ModuleId, Registry};
 use rainmill_pdf::registry::Format;
 use rainmill_pdf::{store, Layout, PdfLayoutReg, PdfModule, PdfTemplateReg};

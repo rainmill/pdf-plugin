@@ -1,6 +1,7 @@
 //! Rendering through the public API: markdown in a layout, Typst with inputs,
 //! archival output, and the failures a caller sees.
 
+use laterite_core::serde_json;
 use rainmill_pdf::markdown::to_typst;
 use rainmill_pdf::{
     markdown_source, render_markdown, render_typst, Assets, DocumentMeta, Layout, Output, PdfError,

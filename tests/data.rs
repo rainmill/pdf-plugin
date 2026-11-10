@@ -2,6 +2,9 @@
 //! protection, and the `Pdf` handle's variables, render hooks, locales and
 //! output helpers.
 
+use laterite_core::sea_query;
+use laterite_core::serde_json;
+use laterite_core::sqlx;
 use std::sync::Arc;
 
 use laterite_core::{Db, Module, ModuleId, Registry};

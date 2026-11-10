@@ -1,6 +1,7 @@
 //! `lat pdf`: sync, check, render, export and import templates and layouts
 //! from the command line.
 
+use laterite_core::serde_json;
 use std::path::{Path, PathBuf};
 
 use laterite_core::command::{Command, CommandCx, CommandError};

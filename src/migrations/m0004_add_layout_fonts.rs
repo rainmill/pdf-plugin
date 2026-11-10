@@ -1,6 +1,7 @@
 //! A layout's font files from the media library, and the font of its masthead
 //! title.
 
+use laterite_core::sea_query;
 use laterite_core::strata::*;
 use sea_query::Alias;
 

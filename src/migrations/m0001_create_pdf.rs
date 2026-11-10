@@ -1,5 +1,6 @@
 //! pdf_layouts and pdf_templates: the letterheads and the documents set in them.
 
+use laterite_core::sea_query;
 use laterite_core::strata::*;
 use sea_query::Alias;
 

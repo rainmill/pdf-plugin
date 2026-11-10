@@ -13,6 +13,7 @@
 //! # }
 //! ```
 
+use laterite_core::serde_json;
 use std::sync::{Arc, Mutex};
 
 use serde_json::Value;

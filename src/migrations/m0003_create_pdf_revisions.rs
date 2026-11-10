@@ -1,6 +1,7 @@
 //! pdf_revisions: what a template or layout held after each save in the admin,
 //! the last twenty kept per record, for the History page and its Restore.
 
+use laterite_core::sea_query;
 use laterite_core::strata::*;
 use sea_query::Alias;
 

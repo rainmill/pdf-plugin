@@ -2,6 +2,7 @@
 //! and the routes behind the editor's live preview and the form actions (download,
 //! duplicate, reset to default).
 
+use laterite_core::serde_json;
 use std::collections::HashMap;
 use std::sync::Arc;
 

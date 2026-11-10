@@ -1,6 +1,7 @@
 //! A layout's logo, background and author from the media library; a template's
 //! keywords; and pdf_template_translations, a template's words in other locales.
 
+use laterite_core::sea_query;
 use laterite_core::strata::*;
 use sea_query::Alias;
 

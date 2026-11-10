@@ -1,6 +1,7 @@
 //! The handle an application renders templates through: it carries the
 //! registered variables and render hooks, and the disks media files live on.
 
+use laterite_core::serde_json;
 use std::sync::Arc;
 
 use laterite_admin::axum::http::header;
@@ -22,7 +23,7 @@ use crate::{DocumentMeta, Output};
 /// ```no_run
 /// # async fn f(db: laterite_core::Db, registry: &laterite_core::Registry) -> Result<(), rainmill_pdf::RenderError> {
 /// use rainmill_pdf::{Pdf, RenderOptions};
-/// use serde_json::json;
+/// use laterite_core::serde_json::json;
 ///
 /// let pdf = Pdf::new(db, registry);
 /// let invoice = pdf

@@ -1,6 +1,7 @@
 //! Rendering: Typst source (or markdown set in a layout) compiled in a sealed world
 //! and written as a PDF, optionally to an archival standard.
 
+use laterite_core::serde_json;
 use typst::foundations::{Dict, IntoValue, Smart};
 use typst_layout::PagedDocument;
 use typst_pdf::{PdfOptions, PdfStandard, PdfStandards, Timestamp};

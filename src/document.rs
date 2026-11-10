@@ -3,6 +3,9 @@
 //! the data from `sys.inputs`, and render hooks change the source before it
 //! compiles.
 
+use laterite_core::minijinja;
+use laterite_core::serde_json;
+use laterite_core::sqlx;
 use serde_json::Value;
 
 use crate::codes::{barcode_path, qr_path};

@@ -6,6 +6,8 @@
 //! visitor can follow it but never render another template or other data. It
 //! lasts a day; the page makes a fresh one each time it renders.
 
+use laterite_core::minijinja;
+use laterite_core::serde_json;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
