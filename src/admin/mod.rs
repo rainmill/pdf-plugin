@@ -65,7 +65,7 @@ pub(crate) fn section() -> laterite_admin::nav::NavItem {
         .description(t!("Edit the templates and layouts PDFs are made from."))
         .slot(laterite_core::arrange::slot::SYSTEM)
         .order(16)
-        .in_settings(t!("System"))
+        .in_settings(t!("Documents"))
 }
 
 /// The History page's stylesheet, by its asset key.
