@@ -7,6 +7,12 @@ bump is breaking and a patch is additive.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-11
+
+### Breaking
+
+- Requires Laterite 0.11.
+
 ### Changed
 
 - PDF Templates sit under a Documents heading in Settings.
